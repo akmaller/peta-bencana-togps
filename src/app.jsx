@@ -2,6 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AlertTriangle, Droplets, Flame, Users, Activity, MapPin, Info, Wind, Search, Newspaper, Layers, Lock, LogOut, Save, Trash2, Plus, Edit3, X, Eye } from 'lucide-react';
 import disastersCsv from './data/disasters.csv?raw';
 
+const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const DISASTERS_API_URL = `${API_BASE_URL}/api/disasters`;
+const SERVER_SYNC_INTERVAL = 30000; // 30s
 const SUMATRA_PROVINCE_IDS = ['11', '12', '13', '14', '15', '16', '17', '18', '19', '21'];
 const PROVINCE_API_URL = 'https://ibnux.github.io/data-indonesia/provinsi.json';
 const REGENCY_API_URL = (provinceId) => `https://ibnux.github.io/data-indonesia/kabupaten/${provinceId}.json`;
@@ -69,6 +72,14 @@ const SUMATRA_LOCATIONS = (() => {
   return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name, 'id-ID'));
 })();
 
+const fetchServerRegions = async () => {
+  if (!DISASTERS_API_URL || typeof fetch === 'undefined') return null;
+  const response = await fetch(DISASTERS_API_URL, { cache: 'no-store' });
+  if (!response.ok) throw new Error('Failed to fetch server disasters data');
+  const csvPayload = await response.text();
+  return parseCSV(csvPayload);
+};
+
 const fetchSumatraLocationOptions = async () => {
   const provinceResponse = await fetch(PROVINCE_API_URL);
   if (!provinceResponse.ok) throw new Error('Failed to fetch province data');
@@ -111,6 +122,7 @@ const App = () => {
   const [locationFetchMessage, setLocationFetchMessage] = useState(null);
   const [isSyncingRegions, setIsSyncingRegions] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState(null);
+  const [isPersistingRegions, setIsPersistingRegions] = useState(false);
   
   // Auth State
   const [passwordInput, setPasswordInput] = useState('');
@@ -124,17 +136,45 @@ const App = () => {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef({});
+  const feedbackTimerRef = useRef(null);
+  const regionsRef = useRef(regions);
+
+  useEffect(() => {
+    regionsRef.current = regions;
+  }, [regions]);
 
   // --- 2. INITIALIZATION & DATA LOADING ---
   useEffect(() => {
-    // A. Load Data - Uses v3 key to force update for merged data
-    const saved = localStorage.getItem('disaster_data_csv_v3');
-    if (saved) {
-      setRegions(JSON.parse(saved));
+    let isMounted = true;
+
+    const hydrateFromCache = () => {
+      if (typeof window === 'undefined') return null;
+      const saved = localStorage.getItem('disaster_data_csv_v3');
+      return saved ? JSON.parse(saved) : null;
+    };
+
+    const cached = hydrateFromCache();
+    if (cached) {
+      setRegions(cached);
     } else {
-      const parsedData = getFallbackRegions();
-      setRegions(parsedData);
+      setRegions(getFallbackRegions());
     }
+
+    const loadServerData = async () => {
+      try {
+        const parsedData = await fetchServerRegions();
+        if (isMounted && parsedData?.length) {
+          setRegions(parsedData);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('disaster_data_csv_v3', JSON.stringify(parsedData));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load server data:', error);
+      }
+    };
+
+    loadServerData();
 
     // B. Load Leaflet Script Safely
     if (!document.getElementById('leaflet-css')) {
@@ -172,10 +212,14 @@ const App = () => {
             }
         }, 100);
 
-        return () => clearInterval(intervalId);
+        return () => {
+          clearInterval(intervalId);
+          isMounted = false;
+        };
     }
 
     return () => {
+       isMounted = false;
        if(mapInstanceRef.current) {
          mapInstanceRef.current.remove();
          mapInstanceRef.current = null;
@@ -190,6 +234,51 @@ const App = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current) {
+        clearTimeout(feedbackTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!DISASTERS_API_URL || typeof fetch === 'undefined') return undefined;
+    let isMounted = true;
+    let timeoutId;
+
+    const syncFromServer = async () => {
+      try {
+        if (!isPersistingRegions) {
+          const latest = await fetchServerRegions();
+          if (isMounted && Array.isArray(latest) && latest.length) {
+            const currentString = JSON.stringify(regionsRef.current);
+            const latestString = JSON.stringify(latest);
+            if (currentString !== latestString) {
+              setRegions(latest);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('disaster_data_csv_v3', JSON.stringify(latest));
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Background sync failed:', error);
+      } finally {
+        if (isMounted) {
+          timeoutId = setTimeout(syncFromServer, SERVER_SYNC_INTERVAL);
+        }
+      }
+    };
+
+    syncFromServer();
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isPersistingRegions]);
 
   useEffect(() => {
     let isMounted = true;
@@ -376,11 +465,12 @@ const App = () => {
   const handleSyncFromAPI = async () => {
     if (isSyncingRegions) return;
     setIsSyncingRegions(true);
-    setSyncFeedback('Mengambil data wilayah Sumatera dari API...');
+    showFeedback('Mengambil data wilayah Sumatera dari API...');
     try {
       const apiLocations = locationOptions.length ? locationOptions : await fetchSumatraLocationOptions();
       if (!apiLocations.length) throw new Error('API tidak mengembalikan data.');
-      const existingIds = new Set(regions.map((region) => region.id));
+      const currentRegions = regionsRef.current;
+      const existingIds = new Set(currentRegions.map((region) => region.id));
       const timestamp = new Date().toLocaleDateString('id-ID');
       const newEntries = apiLocations
         .map((loc) => ({
@@ -398,27 +488,27 @@ const App = () => {
         }))
         .filter((entry) => Number.isFinite(entry.lat) && Number.isFinite(entry.lng) && !existingIds.has(entry.id));
       if (newEntries.length > 0) {
-        setRegions((prev) => [...prev, ...newEntries]);
-        setSyncFeedback(`${newEntries.length} wilayah baru ditambahkan dari API.`);
+        const nextRegions = [...currentRegions, ...newEntries];
+        await persistRegions(nextRegions, { successMessage: `${newEntries.length} wilayah baru ditambahkan dari API.` });
       } else {
-        setSyncFeedback('Tidak ada wilayah baru dari API.');
+        showFeedback('Tidak ada wilayah baru dari API.');
       }
     } catch (error) {
       console.error('API sync failed:', error);
-      setSyncFeedback('Sinkronisasi gagal. Periksa koneksi API.');
+      showFeedback('Sinkronisasi gagal. Periksa koneksi API.');
     } finally {
       setIsSyncingRegions(false);
-      setTimeout(() => setSyncFeedback(null), 6000);
     }
   };
 
-  const handleDelete = (id) => {
-    if (window.confirm('Hapus data ini?')) {
-        setRegions(prev => prev.filter(r => r.id !== id));
-    }
+  const handleDelete = async (id) => {
+    if (!window.confirm('Hapus data ini?')) return;
+    const currentRegions = regionsRef.current;
+    const nextRegions = currentRegions.filter(r => r.id !== id);
+    await persistRegions(nextRegions, { successMessage: 'Data berhasil dihapus dan disimpan ke server.' });
   };
 
-  const handleSaveForm = (e) => {
+  const handleSaveForm = async (e) => {
     e.preventDefault();
     const { locationPreset, ...dataWithoutPreset } = editFormData;
     const formData = {
@@ -426,11 +516,11 @@ const App = () => {
         lat: parseFloat(dataWithoutPreset.lat),
         lng: parseFloat(dataWithoutPreset.lng)
     };
-    if (editingId === 'NEW') {
-        setRegions(prev => [...prev, formData]);
-    } else {
-        setRegions(prev => prev.map(r => r.id === editingId ? formData : r));
-    }
+    const currentRegions = regionsRef.current;
+    const nextRegions = editingId === 'NEW'
+      ? [...currentRegions, formData]
+      : currentRegions.map(r => r.id === editingId ? formData : r);
+    await persistRegions(nextRegions, { successMessage: 'Data berhasil disimpan ke server.' });
     setEditingId(null);
   };
 
@@ -468,6 +558,49 @@ const App = () => {
       (r.disasterType && r.disasterType.toLowerCase().includes(searchTerm.toLowerCase()))
     );
   }, [searchTerm, regions]);
+
+  const showFeedback = (message, duration = 6000) => {
+    setSyncFeedback(message);
+    if (feedbackTimerRef.current) {
+      clearTimeout(feedbackTimerRef.current);
+    }
+    if (message) {
+      feedbackTimerRef.current = setTimeout(() => setSyncFeedback(null), duration);
+    }
+  };
+
+  const persistRegions = async (nextRegions, { successMessage } = {}) => {
+    setRegions(nextRegions);
+    if (typeof fetch === 'undefined') {
+      showFeedback('API server tidak tersedia di lingkungan ini.');
+      return false;
+    }
+    if (!DISASTERS_API_URL) {
+      showFeedback('Endpoint API belum dikonfigurasi.');
+      return false;
+    }
+    try {
+      setIsPersistingRegions(true);
+      const response = await fetch(DISASTERS_API_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: nextRegions }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save server data');
+      }
+      if (successMessage) {
+        showFeedback(successMessage);
+      }
+      return true;
+    } catch (error) {
+      console.error('Failed to persist regions:', error);
+      showFeedback('Gagal menyimpan ke server. Data hanya tersimpan di browser.');
+      return false;
+    } finally {
+      setIsPersistingRegions(false);
+    }
+  };
 
   // --- RENDERERS ---
 
@@ -622,8 +755,20 @@ const App = () => {
                                 <span className="text-[10px] text-slate-500">Cantumkan sumber agar data mudah diverifikasi.</span>
                             </div>
                             <div className="col-span-1 md:col-span-2">
-                                <button type="submit" className="w-full bg-cyan-600 p-3 rounded font-bold text-white flex items-center justify-center gap-2">
-                                    <Save size={16} /> Simpan Perubahan
+                                <button
+                                    type="submit"
+                                    disabled={isPersistingRegions}
+                                    className={`w-full p-3 rounded font-bold text-white flex items-center justify-center gap-2 ${isPersistingRegions ? 'bg-cyan-800 cursor-not-allowed opacity-70' : 'bg-cyan-600 hover:bg-cyan-500'}`}
+                                >
+                                    {isPersistingRegions ? (
+                                        <>
+                                            <Activity size={16} className="animate-spin" /> Menyimpan...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Save size={16} /> Simpan Perubahan
+                                        </>
+                                    )}
                                 </button>
                             </div>
                         </form>
@@ -635,7 +780,7 @@ const App = () => {
                 <div className="p-4 flex justify-between bg-slate-900/50">
                     <h3 className="font-bold text-slate-300">Records ({regions.length})</h3>
                     <div className="flex items-center gap-2">
-                        <button onClick={handleSyncFromAPI} disabled={isSyncingRegions} className={`px-3 py-1 rounded text-white text-sm flex items-center gap-1 ${isSyncingRegions ? 'bg-slate-700 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500'}`}>
+                        <button onClick={handleSyncFromAPI} disabled={isSyncingRegions || isPersistingRegions} className={`px-3 py-1 rounded text-white text-sm flex items-center gap-1 ${(isSyncingRegions || isPersistingRegions) ? 'bg-slate-700 cursor-not-allowed opacity-70' : 'bg-indigo-600 hover:bg-indigo-500'}`}>
                             {isSyncingRegions ? <Activity size={14} className="animate-spin" /> : <Layers size={14} />}
                             {isSyncingRegions ? 'Syncing...' : 'Sync API'}
                         </button>
