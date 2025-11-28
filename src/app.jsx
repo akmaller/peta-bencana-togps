@@ -697,6 +697,9 @@ const App = () => {
             </div>
         </div>
       </main>
+      <footer className="w-full text-center text-[10px] text-slate-500 py-2 border-t border-slate-900 bg-slate-950/80">
+        Created By TOGPS - Kodekita08
+      </footer>
       <style>{`.custom-scrollbar::-webkit-scrollbar { width: 4px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; rounded: 4px; } .leaflet-popup-content-wrapper { background: #0f172a; color: #fff; }`}</style>
     </div>
   );
