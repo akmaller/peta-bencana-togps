@@ -123,6 +123,12 @@ const App = () => {
   const [isSyncingRegions, setIsSyncingRegions] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState(null);
   const [isPersistingRegions, setIsPersistingRegions] = useState(false);
+  const [mapAddForm, setMapAddForm] = useState({ open: false, lat: null, lng: null });
+  const [mapFormData, setMapFormData] = useState({ type: '', name: '', description: '', victims: '', status: '' });
+  const [mapFormPassword, setMapFormPassword] = useState('');
+  const [mapFormAuthorized, setMapFormAuthorized] = useState(false);
+  const [mapFormError, setMapFormError] = useState(null);
+  const [isSubmittingMapForm, setIsSubmittingMapForm] = useState(false);
   
   // Auth State
   const [passwordInput, setPasswordInput] = useState('');
@@ -295,6 +301,10 @@ const App = () => {
     if (!window.L || typeof window.L.map !== 'function') return;
 
     if (mapInstanceRef.current) {
+        if (mapInstanceRef.current.__contextHandler) {
+            mapInstanceRef.current.off('contextmenu', mapInstanceRef.current.__contextHandler);
+            delete mapInstanceRef.current.__contextHandler;
+        }
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
     }
@@ -304,14 +314,21 @@ const App = () => {
             center: [2.0, 98.0], // Centered to show Aceh (Top), Sumut (Mid), Sumbar (Bottom)
             zoom: 6, 
             zoomControl: false,
-            attributionControl: false
+            attributionControl: true
         });
 
-        window.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19, subdomains: 'abcd',
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
         }).addTo(map);
+        const handleContextMenu = (event) => {
+            event.originalEvent?.preventDefault();
+            openMapFormAt(event.latlng.lat, event.latlng.lng);
+        };
+        map.on('contextmenu', handleContextMenu);
 
         mapInstanceRef.current = map;
+        mapInstanceRef.current.__contextHandler = handleContextMenu;
         addMarkersToMap(map);
         
     } catch (err) {
@@ -323,24 +340,52 @@ const App = () => {
   const addMarkersToMap = (map) => {
      markersRef.current = {};
      regions.forEach(region => {
-    if (!region.lat || !region.lng) return;
-    if (!region.disasterType || region.disasterType.trim().toLowerCase() === 'belum tercatat') return;
+        if (!region.lat || !region.lng) return;
+        if (!region.disasterType || region.disasterType.trim().toLowerCase() === 'belum tercatat') return;
+
+        const disasterTypeText = String(region.disasterType || '');
+        const typeLower = disasterTypeText.toLowerCase();
+        const isAccessCut = typeLower.includes('akses putus');
+        const isAccessAir = typeLower.includes('akses udara');
+        const isAccessSafe = typeLower.includes('akses aman');
 
         const severityClass = region.severity === 'critical' ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.6)]' : 
                               region.severity === 'high' ? 'bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.6)]' : 
                               'bg-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]';
         const pulseClass = region.severity === 'critical' || region.severity === 'high' ? 'animate-ping' : '';
         
+        const iconHtml = isAccessAir
+          ? `
+            <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
+              <div style="width: 32px; height: 32px; border-radius: 9999px; background: rgba(16,185,129,0.15); border: 2px solid rgba(16,185,129,0.8); box-shadow: 0 0 12px rgba(16,185,129,0.4);"></div>
+              <div style="position: absolute; color: #22c55e; font-size: 18px; font-weight: bold;">✈</div>
+            </div>
+          `
+          : isAccessCut
+          ? `
+            <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
+              <div style="width: 30px; height: 30px; border-radius: 9999px; background: #dc2626; border: 4px solid #7f1d1d; box-shadow: 0 0 12px rgba(220,38,38,0.65);"></div>
+              <div style="position: absolute; width: 20px; height: 5px; background: #fff; border-radius: 9999px;"></div>
+            </div>
+          `
+          : isAccessSafe
+          ? `
+            <div style="position: relative; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;">
+              <div style="width: 10px; height: 10px; border-radius: 9999px; background: #22c55e; border: 2px solid #064e3b;"></div>
+            </div>
+          `
+          : `
+            <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">
+              <div class="${pulseClass} absolute inset-0 rounded-full ${severityClass} opacity-75"></div>
+              <div class="relative w-3 h-3 rounded-full ${severityClass} border-2 border-slate-900"></div>
+            </div>
+          `;
+
         const customIcon = window.L.divIcon({
             className: 'custom-div-icon',
-            html: `
-                <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">
-                    <div class="${pulseClass} absolute inset-0 rounded-full ${severityClass} opacity-75"></div>
-                    <div class="relative w-3 h-3 rounded-full ${severityClass} border-2 border-slate-900"></div>
-                </div>
-            `,
-            iconSize: [24, 24],
-            iconAnchor: [12, 12]
+            html: iconHtml,
+            iconSize: isAccessAir || isAccessCut ? [36, 36] : isAccessSafe ? [20, 20] : [24, 24],
+            iconAnchor: isAccessAir || isAccessCut ? [18, 18] : isAccessSafe ? [10, 10] : [12, 12]
         });
 
         const marker = window.L.marker([region.lat, region.lng], { icon: customIcon }).addTo(map);
@@ -544,6 +589,24 @@ const App = () => {
     }
   };
 
+  const resetMapFormState = () => {
+    setMapFormData({ type: '', name: '', description: '', victims: '', status: '' });
+    setMapFormPassword('');
+    setMapFormAuthorized(false);
+    setMapFormError(null);
+    setIsSubmittingMapForm(false);
+  };
+
+  const openMapFormAt = (lat, lng) => {
+    resetMapFormState();
+    setMapAddForm({ open: true, lat, lng });
+  };
+
+  const closeMapForm = () => {
+    setMapAddForm({ open: false, lat: null, lng: null });
+    resetMapFormState();
+  };
+
   const persistRegions = async (nextRegions, { successMessage } = {}) => {
     setRegions(nextRegions);
     if (typeof fetch === 'undefined') {
@@ -574,6 +637,50 @@ const App = () => {
       return false;
     } finally {
       setIsPersistingRegions(false);
+    }
+  };
+
+  const handleMapFormUnlock = async (e) => {
+    e.preventDefault();
+    try {
+      const hash = await hashPassword(mapFormPassword);
+      if (hash === TARGET_HASH) {
+        setMapFormAuthorized(true);
+        setMapFormError(null);
+      } else {
+        setMapFormError('Password salah.');
+      }
+    } catch (error) {
+      console.error('Password hash error:', error);
+      setMapFormError('Gagal memverifikasi password.');
+    }
+  };
+
+  const handleMapFormSubmit = async (e) => {
+    e.preventDefault();
+    if (!mapAddForm.open || !mapFormAuthorized) {
+      setMapFormError('Masukkan password admin terlebih dahulu.');
+      return;
+    }
+    setIsSubmittingMapForm(true);
+    const timestamp = new Date().toLocaleDateString('id-ID');
+    const newEntry = {
+      id: `map-${Date.now()}`,
+      name: mapFormData.name || `Titik ${timestamp}`,
+      lat: mapAddForm.lat,
+      lng: mapAddForm.lng,
+      disasterType: mapFormData.type || 'Akses Putus',
+      victimsText: mapFormData.victims || '-',
+      status: mapFormData.status || 'Waspada',
+      severity: 'medium',
+      description: mapFormData.description || '-',
+      lastUpdate: timestamp,
+      source: 'Map Context Form'
+    };
+    const success = await persistRegions([...regionsRef.current, newEntry], { successMessage: 'Titik baru berhasil ditambahkan.' });
+    setIsSubmittingMapForm(false);
+    if (success) {
+      closeMapForm();
     }
   };
 
@@ -635,6 +742,57 @@ const App = () => {
             <span>Lat {activeRegion.lat?.toFixed(2)} / Lng {activeRegion.lng?.toFixed(2)}</span>
             <span>Update {activeRegion.lastUpdate}</span>
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderMapAddOverlay = () => {
+    if (!mapAddForm.open) return null;
+    return (
+      <div className="fixed inset-0 z-[650] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm px-4 py-6">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl p-6 relative shadow-2xl">
+          <button onClick={closeMapForm} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+            <X size={18} />
+          </button>
+          <h3 className="text-lg font-bold text-white mb-2">Tambahkan Kondisi dari Peta</h3>
+          <p className="text-xs text-slate-400">Klik kanan di peta membuka formulir ini. Koordinat: <span className="font-mono text-cyan-400">{mapAddForm.lat?.toFixed(4)}, {mapAddForm.lng?.toFixed(4)}</span></p>
+          {!mapFormAuthorized ? (
+            <form onSubmit={handleMapFormUnlock} className="mt-4 space-y-3">
+              <label className="text-xs text-slate-400 uppercase tracking-wide">Password Admin</label>
+              <input type="password" value={mapFormPassword} onChange={(e) => setMapFormPassword(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white" placeholder="Masukkan password admin" autoFocus />
+              {mapFormError && <p className="text-xs text-red-400">{mapFormError}</p>}
+              <button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2 rounded-lg">Verifikasi Password</button>
+            </form>
+          ) : (
+            <form onSubmit={handleMapFormSubmit} className="mt-4 space-y-3">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase">Jenis / Tipe</label>
+                <input value={mapFormData.type} onChange={(e) => setMapFormData({ ...mapFormData, type: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Akses Putus" required />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase">Nama Wilayah</label>
+                <input value={mapFormData.name} onChange={(e) => setMapFormData({ ...mapFormData, name: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Ruas Bireuen - Takengon" required />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase">Deskripsi</label>
+                <textarea value={mapFormData.description} onChange={(e) => setMapFormData({ ...mapFormData, description: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" rows="3" placeholder="Detail kejadian" required />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase">Dampak / Korban</label>
+                <input value={mapFormData.victims} onChange={(e) => setMapFormData({ ...mapFormData, victims: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder='Contoh: "Akses total, 200 KK terdampak"' />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase">Label Status</label>
+                <input value={mapFormData.status} onChange={(e) => setMapFormData({ ...mapFormData, status: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Darurat" />
+              </div>
+              {mapFormError && <p className="text-xs text-red-400">{mapFormError}</p>}
+              <button type="submit" disabled={isSubmittingMapForm} className={`w-full py-2 rounded-lg font-semibold text-white flex items-center justify-center gap-2 ${isSubmittingMapForm ? 'bg-slate-700 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500'}`}>
+                {isSubmittingMapForm ? <Activity size={16} className="animate-spin" /> : <Plus size={16} />}
+                {isSubmittingMapForm ? 'Menyimpan...' : 'Simpan ke Database'}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -871,6 +1029,7 @@ const App = () => {
           </>
         )}
       </main>
+      {renderMapAddOverlay()}
       <footer className="w-full text-center text-[10px] text-slate-500 py-2 border-t border-slate-900 bg-slate-950/80">
         Created By TOGPS - Kodekita08
       </footer>
