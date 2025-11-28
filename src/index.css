@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #020617; /* slate-950 */
+}
+
+/* Custom Scrollbar for feeds */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.5); 
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.8); 
+  border-radius: 4px;
+}
+
+/* Leaflet Popup Customization override */
+.leaflet-popup-content-wrapper {
+    background: #0f172a !important; /* slate-900 */
+    color: #e2e8f0 !important; /* slate-200 */
+    border: 1px solid #1e293b;
+    border-radius: 0.75rem;
+}
+.leaflet-popup-tip {
+    background: #0f172a !important;
+}
+.leaflet-container {
+    background: #0f172a !important;
+}

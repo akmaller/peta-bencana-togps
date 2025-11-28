@@ -1,0 +1,17 @@
+# Build output
+dist/
+
+# Node dependencies
+node_modules/
+
+# Env & local config
+.env
+.env.*
+
+# Logs & debug
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Editor/OS cruft
+.DS_Store
