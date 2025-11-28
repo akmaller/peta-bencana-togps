@@ -124,11 +124,18 @@ const App = () => {
   const [syncFeedback, setSyncFeedback] = useState(null);
   const [isPersistingRegions, setIsPersistingRegions] = useState(false);
   const [mapAddForm, setMapAddForm] = useState({ open: false, lat: null, lng: null });
-  const [mapFormData, setMapFormData] = useState({ type: '', name: '', description: '', victims: '', status: '' });
+  const [mapFormData, setMapFormData] = useState({ type: 'Akses Putus', name: '', description: '', victims: '', status: '', severity: 'medium' });
   const [mapFormPassword, setMapFormPassword] = useState('');
   const [mapFormAuthorized, setMapFormAuthorized] = useState(false);
   const [mapFormError, setMapFormError] = useState(null);
   const [isSubmittingMapForm, setIsSubmittingMapForm] = useState(false);
+  const [mapEditTarget, setMapEditTarget] = useState(null);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearchingLocations, setIsSearchingLocations] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const [searchPointer, setSearchPointer] = useState(null);
   
   // Auth State
   const [passwordInput, setPasswordInput] = useState('');
@@ -144,6 +151,8 @@ const App = () => {
   const markersRef = useRef({});
   const feedbackTimerRef = useRef(null);
   const regionsRef = useRef(regions);
+  const searchDebounceRef = useRef(null);
+  const searchAbortRef = useRef(null);
 
   useEffect(() => {
     regionsRef.current = regions;
@@ -231,6 +240,12 @@ const App = () => {
       if (feedbackTimerRef.current) {
         clearTimeout(feedbackTimerRef.current);
       }
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+      if (searchAbortRef.current) {
+        searchAbortRef.current.abort();
+      }
     };
   }, []);
 
@@ -267,6 +282,72 @@ const App = () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [isPersistingRegions]);
+
+  useEffect(() => {
+    if (!isSearchModalOpen) {
+      setSearchResults([]);
+      setSearchError(null);
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      if (searchAbortRef.current) searchAbortRef.current.abort();
+      return;
+    }
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (searchAbortRef.current) searchAbortRef.current.abort();
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      setSearchError(null);
+      setIsSearchingLocations(false);
+      return;
+    }
+    searchDebounceRef.current = setTimeout(async () => {
+      setIsSearchingLocations(true);
+      setSearchError(null);
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      const params = new URLSearchParams({
+        format: 'json',
+        addressdetails: '1',
+        limit: '8',
+        bounded: '1',
+        viewbox: '94,-7,106,6.5',
+        q: searchQuery
+      });
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'SumateraMonitor/1.0 (+https://petabencana.kodekita.id)'
+          },
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error('Pencarian gagal');
+        const data = await response.json();
+        const filtered = Array.isArray(data) ? data.filter(item => item?.lat && item?.lon && item?.address?.state) : [];
+        setSearchResults(filtered.map(item => ({
+          id: item.place_id,
+          title: item.display_name?.split(',')[0] || item.display_name,
+          subtitle: [
+            item.address?.village || item.address?.suburb || '',
+            item.address?.city || item.address?.town || item.address?.municipality || '',
+            item.address?.state || ''
+          ].filter(Boolean).join(' · '),
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon)
+        })));
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          console.error('Search error:', error);
+          setSearchError('Gagal memuat hasil pencarian.');
+        }
+      } finally {
+        setIsSearchingLocations(false);
+      }
+    }, 450);
+
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery, isSearchModalOpen]);
 
   useEffect(() => {
     let isMounted = true;
@@ -363,9 +444,9 @@ const App = () => {
           `
           : isAccessCut
           ? `
-            <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
-              <div style="width: 30px; height: 30px; border-radius: 9999px; background: #dc2626; border: 4px solid #7f1d1d; box-shadow: 0 0 12px rgba(220,38,38,0.65);"></div>
-              <div style="position: absolute; width: 20px; height: 5px; background: #fff; border-radius: 9999px;"></div>
+            <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">
+              <div style="width: 18px; height: 18px; border-radius: 9999px; background: #dc2626; border: 3px solid #7f1d1d; box-shadow: 0 0 8px rgba(220,38,38,0.65);"></div>
+              <div style="position: absolute; width: 12px; height: 3px; background: #fff; border-radius: 9999px;"></div>
             </div>
           `
           : isAccessSafe
@@ -384,8 +465,8 @@ const App = () => {
         const customIcon = window.L.divIcon({
             className: 'custom-div-icon',
             html: iconHtml,
-            iconSize: isAccessAir || isAccessCut ? [36, 36] : isAccessSafe ? [20, 20] : [24, 24],
-            iconAnchor: isAccessAir || isAccessCut ? [18, 18] : isAccessSafe ? [10, 10] : [12, 12]
+            iconSize: isAccessAir ? [36, 36] : isAccessCut ? [24, 24] : isAccessSafe ? [20, 20] : [24, 24],
+            iconAnchor: isAccessAir ? [18, 18] : isAccessCut ? [12, 12] : isAccessSafe ? [10, 10] : [12, 12]
         });
 
         const marker = window.L.marker([region.lat, region.lng], { icon: customIcon }).addTo(map);
@@ -395,14 +476,38 @@ const App = () => {
         });
         markersRef.current[region.id] = marker;
     });
+     if (searchPointer) {
+        if (markersRef.current.__searchPointer) {
+            map.removeLayer(markersRef.current.__searchPointer);
+        }
+        const pointerIcon = window.L.divIcon({
+            className: 'custom-div-icon pointer',
+            html: `
+                <div style="position: relative; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;">
+                    <div style="width: 14px; height: 14px; border-radius: 9999px; background: #22d3ee; border: 2px solid #0e7490; box-shadow: 0 0 10px rgba(34,211,238,0.7);"></div>
+                </div>
+            `,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+        const pointerMarker = window.L.marker([searchPointer.lat, searchPointer.lng], { icon: pointerIcon, interactive: true }).addTo(map);
+        pointerMarker.on('click', () => {
+            openMapFormAt(searchPointer.lat, searchPointer.lng);
+        });
+        markersRef.current.__searchPointer = pointerMarker;
+     }
   };
 
   useEffect(() => {
     if (mapInstanceRef.current && isLeafletReady && window.L) {
         Object.values(markersRef.current).forEach(m => m.remove());
+        if (markersRef.current.__searchPointer) {
+            markersRef.current.__searchPointer.remove();
+            delete markersRef.current.__searchPointer;
+        }
         addMarkersToMap(mapInstanceRef.current);
     }
-  }, [regions]);
+  }, [regions, searchPointer]);
 
   useEffect(() => {
     if (!editingId || !editFormData?.name) return;
@@ -590,21 +695,47 @@ const App = () => {
   };
 
   const resetMapFormState = () => {
-    setMapFormData({ type: '', name: '', description: '', victims: '', status: '' });
+    setMapFormData({ type: 'Akses Putus', name: '', description: '', victims: '', status: '', severity: 'medium' });
     setMapFormPassword('');
     setMapFormAuthorized(false);
     setMapFormError(null);
     setIsSubmittingMapForm(false);
   };
 
-  const openMapFormAt = (lat, lng) => {
-    resetMapFormState();
-    setMapAddForm({ open: true, lat, lng });
+  const openMapFormAt = (lat, lng, editingRegion = null) => {
+    if (editingRegion) {
+      setMapFormData({
+        type: editingRegion.disasterType || 'Akses Putus',
+        name: editingRegion.name || '',
+        description: editingRegion.description || '',
+        victims: editingRegion.victimsText || '',
+        status: editingRegion.status || '',
+        severity: editingRegion.severity || 'medium'
+      });
+      setMapEditTarget(editingRegion);
+      setMapAddForm({ open: true, lat: editingRegion.lat, lng: editingRegion.lng });
+    } else {
+      resetMapFormState();
+      setMapAddForm({ open: true, lat, lng });
+    }
   };
 
   const closeMapForm = () => {
     setMapAddForm({ open: false, lat: null, lng: null });
     resetMapFormState();
+    setMapEditTarget(null);
+  };
+
+  const openSearchModal = () => {
+    setIsSearchModalOpen(true);
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchError(null);
+    setSearchPointer(null);
+  };
+
+  const closeSearchModal = () => {
+    setIsSearchModalOpen(false);
   };
 
   const persistRegions = async (nextRegions, { successMessage } = {}) => {
@@ -664,20 +795,25 @@ const App = () => {
     }
     setIsSubmittingMapForm(true);
     const timestamp = new Date().toLocaleDateString('id-ID');
+    const isEditing = Boolean(mapEditTarget);
+    const entryId = isEditing ? mapEditTarget.id : `map-${Date.now()}`;
     const newEntry = {
-      id: `map-${Date.now()}`,
+      id: entryId,
       name: mapFormData.name || `Titik ${timestamp}`,
       lat: mapAddForm.lat,
       lng: mapAddForm.lng,
       disasterType: mapFormData.type || 'Akses Putus',
       victimsText: mapFormData.victims || '-',
       status: mapFormData.status || 'Waspada',
-      severity: 'medium',
+      severity: mapFormData.severity || 'medium',
       description: mapFormData.description || '-',
       lastUpdate: timestamp,
       source: 'Map Context Form'
     };
-    const success = await persistRegions([...regionsRef.current, newEntry], { successMessage: 'Titik baru berhasil ditambahkan.' });
+    const nextRegions = isEditing
+      ? regionsRef.current.map(region => region.id === entryId ? newEntry : region)
+      : [...regionsRef.current, newEntry];
+    const success = await persistRegions(nextRegions, { successMessage: isEditing ? 'Titik berhasil diperbarui.' : 'Titik baru berhasil ditambahkan.' });
     setIsSubmittingMapForm(false);
     if (success) {
       closeMapForm();
@@ -706,6 +842,13 @@ const App = () => {
         </div>
         {mobileVariant && (
           <div className="absolute top-3 right-3 z-[450] flex gap-2">
+            <button
+              onClick={openSearchModal}
+              className="p-2 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-cyan-300 transition"
+              aria-label="Cari Lokasi"
+            >
+              <Search size={16} />
+            </button>
             <button
               onClick={() => setViewMode('login')}
               className="p-2 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-cyan-300 transition"
@@ -768,7 +911,12 @@ const App = () => {
             <form onSubmit={handleMapFormSubmit} className="mt-4 space-y-3">
               <div>
                 <label className="text-[11px] font-semibold text-slate-400 uppercase">Jenis / Tipe</label>
-                <input value={mapFormData.type} onChange={(e) => setMapFormData({ ...mapFormData, type: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Akses Putus" required />
+                <select value={mapFormData.type} onChange={(e) => setMapFormData({ ...mapFormData, type: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                  <option value="Banjir">Banjir</option>
+                  <option value="Longsor">Longsor</option>
+                  <option value="Akses Putus">Akses Putus</option>
+                  <option value="Akses Aman">Akses Aman</option>
+                </select>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-slate-400 uppercase">Nama Wilayah</label>
@@ -776,15 +924,23 @@ const App = () => {
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-slate-400 uppercase">Deskripsi</label>
-                <textarea value={mapFormData.description} onChange={(e) => setMapFormData({ ...mapFormData, description: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" rows="3" placeholder="Detail kejadian" required />
+                <textarea value={mapFormData.description} onChange={(e) => setMapFormData({ ...mapFormData, description: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" rows="3" placeholder="Detail kejadian (opsional)" />
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-slate-400 uppercase">Dampak / Korban</label>
                 <input value={mapFormData.victims} onChange={(e) => setMapFormData({ ...mapFormData, victims: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder='Contoh: "Akses total, 200 KK terdampak"' />
               </div>
               <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase">Tingkat Keparahan</label>
+                <select value={mapFormData.severity} onChange={(e) => setMapFormData({ ...mapFormData, severity: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                  <option value="medium">Medium (Waspada)</option>
+                  <option value="high">High (Siaga)</option>
+                  <option value="critical">Critical (Darurat)</option>
+                </select>
+              </div>
+              <div>
                 <label className="text-[11px] font-semibold text-slate-400 uppercase">Label Status</label>
-                <input value={mapFormData.status} onChange={(e) => setMapFormData({ ...mapFormData, status: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Darurat" />
+                <input value={mapFormData.status} onChange={(e) => setMapFormData({ ...mapFormData, status: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Darurat (opsional)" />
               </div>
               {mapFormError && <p className="text-xs text-red-400">{mapFormError}</p>}
               <button type="submit" disabled={isSubmittingMapForm} className={`w-full py-2 rounded-lg font-semibold text-white flex items-center justify-center gap-2 ${isSubmittingMapForm ? 'bg-slate-700 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500'}`}>
@@ -793,6 +949,61 @@ const App = () => {
               </button>
             </form>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  const handleSearchResultSelect = (result) => {
+    if (!result) return;
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([result.lat, result.lng], 11, { animate: true, duration: 1.3 });
+    }
+    setSearchPointer({ lat: result.lat, lng: result.lng });
+    setActiveRegion(null);
+    closeSearchModal();
+  };
+
+  const renderSearchModal = () => {
+    if (!isSearchModalOpen) return null;
+    return (
+      <div className="fixed inset-0 z-[640] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm px-4 py-6">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 relative shadow-2xl">
+          <button onClick={closeSearchModal} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+            <X size={18} />
+          </button>
+          <h3 className="text-lg font-bold text-white mb-1">Cari Lokasi Sumatera</h3>
+          <p className="text-xs text-slate-400 mb-4">Masukkan nama provinsi, kab/kota, kecamatan, kelurahan/desa, atau nama jalan. Data dibatasi pada Pulau Sumatera.</p>
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Contoh: Jembatan Gunung Nago, Kabupaten Bener Meriah..."
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white pr-12"
+              autoFocus
+            />
+            <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+          </div>
+          {isSearchingLocations && <p className="text-xs text-slate-400 mt-3">Mencari lokasi...</p>}
+          {searchError && <p className="text-xs text-red-400 mt-3">{searchError}</p>}
+          <div className="mt-4 space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-2">
+            {searchResults.length === 0 && !isSearchingLocations ? (
+              <p className="text-xs text-slate-500 text-center py-6">Tidak ada hasil. Coba kata kunci lain.</p>
+            ) : (
+              searchResults.map(result => (
+                <button
+                  key={result.id}
+                  onClick={() => handleSearchResultSelect(result)}
+                  className="w-full text-left bg-slate-800/60 hover:bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 transition flex flex-col"
+                >
+                  <span className="text-sm font-semibold text-white">{result.title}</span>
+                  {result.subtitle && <span className="text-xs text-slate-400">{result.subtitle}</span>}
+                  <span className="text-[10px] text-slate-500 font-mono mt-1">Lat {result.lat.toFixed(4)} · Lng {result.lng.toFixed(4)}</span>
+                </button>
+              ))
+            )}
+          </div>
         </div>
       </div>
     );
@@ -976,6 +1187,9 @@ const App = () => {
                 <input type="text" placeholder="Search..." className="bg-slate-800 border border-slate-700 rounded-full px-4 py-2 pl-10 text-xs w-48 md:w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                 <Search className="absolute left-3 top-2.5 text-slate-500" size={14} />
             </div>
+            <button onClick={openSearchModal} className="p-2 text-slate-400 hover:text-cyan-400 border border-slate-700 rounded-full">
+              <Search size={16} />
+            </button>
             <button onClick={() => setViewMode('login')} className="p-2 text-slate-500 hover:text-cyan-400 border-l border-slate-700 pl-4"><Lock size={16} /></button>
         </div>
       </header>
@@ -1006,8 +1220,13 @@ const App = () => {
                                     <div className="bg-slate-950/50 p-3 rounded border border-slate-800"><p className="text-[10px] text-slate-400">TYPE</p><p className="font-semibold">{activeRegion.disasterType}</p></div>
                                     <div className="bg-slate-950/50 p-3 rounded border border-slate-800"><p className="text-[10px] text-slate-400">IMPACT</p><p className="font-mono">{activeRegion.victimsText}</p></div>
                                     <div className="bg-slate-800/30 p-3 rounded border border-slate-800"><p className="text-[10px] text-cyan-500/70 mb-1">REPORT</p><p className="text-sm text-slate-300">"{activeRegion.description}"</p></div>
+                                    <div className="pt-2">
+                                      <button onClick={() => openMapFormAt(activeRegion.lat, activeRegion.lng, activeRegion)} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg flex items-center justify-center gap-2">
+                                        <Edit3 size={14} /> Edit Titik Ini
+                                      </button>
+                                    </div>
                                 </div>
-                             </div>
+                         </div>
                         </>
                     )}
                 </div>
@@ -1030,6 +1249,7 @@ const App = () => {
         )}
       </main>
       {renderMapAddOverlay()}
+      {renderSearchModal()}
       <footer className="w-full text-center text-[10px] text-slate-500 py-2 border-t border-slate-900 bg-slate-950/80">
         Created By TOGPS - Kodekita08
       </footer>
