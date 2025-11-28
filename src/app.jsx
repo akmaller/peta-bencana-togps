@@ -105,6 +105,7 @@ const App = () => {
   const [activeRegion, setActiveRegion] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLeafletReady, setIsLeafletReady] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
   const [locationOptions, setLocationOptions] = useState(SUMATRA_LOCATIONS);
   const [isFetchingLocations, setIsFetchingLocations] = useState(false);
   const [locationFetchMessage, setLocationFetchMessage] = useState(null);
@@ -180,6 +181,14 @@ const App = () => {
          mapInstanceRef.current = null;
        }
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   useEffect(() => {
@@ -462,6 +471,67 @@ const App = () => {
 
   // --- RENDERERS ---
 
+  const renderMapSection = (variant = 'desktop') => {
+    const mobileVariant = variant === 'mobile';
+    return (
+      <div className={`${mobileVariant ? 'relative w-full h-full bg-slate-900 overflow-hidden' : 'flex-[2] relative bg-slate-900 border border-slate-800 rounded-xl overflow-hidden'}`}>
+        <div
+          id="map-container"
+          ref={mapContainerRef}
+          className={`${mobileVariant ? 'relative w-full h-full min-h-[calc(100vh-40px)]' : 'relative w-full h-full'} bg-slate-900 z-0`}
+        >
+          {!isLeafletReady && (
+            <div className="absolute inset-0 flex items-center justify-center text-slate-500 animate-pulse">
+              Initializing Map System...
+            </div>
+          )}
+        </div>
+        <div className={`absolute ${mobileVariant ? 'top-3 left-3' : 'bottom-4 left-4'} z-[400] text-[10px] font-mono text-cyan-500/80 bg-slate-950/80 px-3 py-1.5 rounded-full border border-slate-800/70`}>
+          LAT: {activeRegion?.lat?.toFixed(4) || '-'} | LNG: {activeRegion?.lng?.toFixed(4) || '-'}
+        </div>
+        {mobileVariant && (
+          <div className="absolute top-3 right-3 z-[450] flex gap-2">
+            <button
+              onClick={() => setViewMode('login')}
+              className="p-2 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-cyan-300 transition"
+              aria-label="Admin Login"
+            >
+              <Lock size={16} />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderMobileSnackbar = () => {
+    if (!isMobile || !activeRegion) return null;
+    return (
+      <div className="absolute bottom-4 left-4 right-4 z-[500] pointer-events-auto">
+        <div className="bg-slate-950/95 border border-slate-800 rounded-2xl p-4 shadow-2xl ring-1 ring-cyan-500/20">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-white">{activeRegion.name}</p>
+              <span className={`mt-1 inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${getSeverityColor(activeRegion.severity)}`}>{activeRegion.status}</span>
+            </div>
+            <button onClick={() => setActiveRegion(null)} className="text-slate-400 hover:text-white transition p-1" aria-label="Tutup detail">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="mt-3 space-y-1 text-xs text-slate-300">
+            <p className="font-semibold text-slate-100">{activeRegion.disasterType}</p>
+            <p className="font-mono text-cyan-400 text-[11px]">{activeRegion.victimsText}</p>
+            <p className="text-slate-400 text-[11px] italic">"{activeRegion.description}"</p>
+          </div>
+          <div className="mt-3 text-[10px] text-slate-500 flex justify-between gap-2">
+            <span>Lat {activeRegion.lat?.toFixed(2)} / Lng {activeRegion.lng?.toFixed(2)}</span>
+            <span>Update {activeRegion.lastUpdate}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderAdminDashboard = () => (
     <div className="w-full h-screen overflow-y-auto bg-slate-950 p-6">
         <div className="max-w-7xl mx-auto">
@@ -619,7 +689,7 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden relative selection:bg-cyan-500/30">
-      <header className="absolute top-0 left-0 w-full p-4 z-50 flex flex-col md:flex-row justify-between items-center backdrop-blur-md bg-slate-900/80 border-b border-slate-800">
+      <header className="absolute top-0 left-0 w-full p-4 z-50 hidden md:flex justify-between items-center backdrop-blur-md bg-slate-900/80 border-b border-slate-800">
         <div>
           <h1 className="text-xl md:text-2xl font-bold tracking-wider text-cyan-400 flex items-center gap-2"><Activity className="animate-pulse" /> SUMATERA MONITOR</h1>
         </div>
@@ -632,48 +702,54 @@ const App = () => {
         </div>
       </header>
 
-      <main className="flex flex-col md:flex-row h-screen pt-24 pb-4 px-4 gap-4 relative z-10">
-        <div className="flex-[2] relative bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-            <div id="map-container" ref={mapContainerRef} className="w-full h-full bg-slate-900 z-0">
-                {!isLeafletReady && <div className="absolute inset-0 flex items-center justify-center text-slate-500 animate-pulse">Initializing Map System...</div>}
-            </div>
-            <div className="absolute bottom-4 left-4 z-[400] text-[10px] font-mono text-cyan-500/80 bg-slate-950/80 p-2 rounded">LAT: {activeRegion?.lat?.toFixed(4) || '-'} | LNG: {activeRegion?.lng?.toFixed(4) || '-'}</div>
-        </div>
+      <main
+        className={isMobile ? 'relative z-10 px-0 pb-0' : 'flex flex-col md:flex-row h-screen pt-24 pb-4 px-4 gap-4 relative z-10'}
+        style={isMobile ? { minHeight: 'calc(100vh - 40px)' } : undefined}
+      >
+        {isMobile ? (
+          <div className="relative h-full w-full">
+            {renderMapSection('mobile')}
+            {renderMobileSnackbar()}
+          </div>
+        ) : (
+          <>
+            {renderMapSection('desktop')}
+            <div className="flex-1 min-w-[320px] max-w-md flex flex-col gap-3 pointer-events-auto">
+                <div className={`flex-1 bg-slate-900/90 backdrop-blur-xl border border-slate-700 rounded-xl p-5 relative overflow-hidden flex flex-col ${activeRegion ? 'ring-1 ring-cyan-500/30' : ''}`}>
+                    {!activeRegion ? (
+                        <div className="h-full flex flex-col items-center justify-center text-slate-500 text-center"><MapPin size={48} className="mb-4 opacity-50"/>SELECT REGION</div>
+                    ) : (
+                        <>
+                             <div className={`absolute -top-20 -right-20 w-64 h-64 blur-[60px] opacity-20 pointer-events-none rounded-full ${getSeverityBg(activeRegion.severity)}`}></div>
+                             <div className="relative z-10">
+                                <h2 className="text-xl font-bold text-white mb-2">{activeRegion.name}</h2>
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getSeverityColor(activeRegion.severity)}`}>{activeRegion.status}</span>
+                                <div className="mt-4 space-y-3">
+                                    <div className="bg-slate-950/50 p-3 rounded border border-slate-800"><p className="text-[10px] text-slate-400">TYPE</p><p className="font-semibold">{activeRegion.disasterType}</p></div>
+                                    <div className="bg-slate-950/50 p-3 rounded border border-slate-800"><p className="text-[10px] text-slate-400">IMPACT</p><p className="font-mono">{activeRegion.victimsText}</p></div>
+                                    <div className="bg-slate-800/30 p-3 rounded border border-slate-800"><p className="text-[10px] text-cyan-500/70 mb-1">REPORT</p><p className="text-sm text-slate-300">"{activeRegion.description}"</p></div>
+                                </div>
+                             </div>
+                        </>
+                    )}
+                </div>
 
-        <div className="flex-1 min-w-[320px] max-w-md flex flex-col gap-3 pointer-events-auto">
-            <div className={`flex-1 bg-slate-900/90 backdrop-blur-xl border border-slate-700 rounded-xl p-5 relative overflow-hidden flex flex-col ${activeRegion ? 'ring-1 ring-cyan-500/30' : ''}`}>
-                {!activeRegion ? (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-500 text-center"><MapPin size={48} className="mb-4 opacity-50"/>SELECT REGION</div>
-                ) : (
-                    <>
-                         <div className={`absolute -top-20 -right-20 w-64 h-64 blur-[60px] opacity-20 pointer-events-none rounded-full ${getSeverityBg(activeRegion.severity)}`}></div>
-                         <div className="relative z-10">
-                            <h2 className="text-xl font-bold text-white mb-2">{activeRegion.name}</h2>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getSeverityColor(activeRegion.severity)}`}>{activeRegion.status}</span>
-                            <div className="mt-4 space-y-3">
-                                <div className="bg-slate-950/50 p-3 rounded border border-slate-800"><p className="text-[10px] text-slate-400">TYPE</p><p className="font-semibold">{activeRegion.disasterType}</p></div>
-                                <div className="bg-slate-950/50 p-3 rounded border border-slate-800"><p className="text-[10px] text-slate-400">IMPACT</p><p className="font-mono">{activeRegion.victimsText}</p></div>
-                                <div className="bg-slate-800/30 p-3 rounded border border-slate-800"><p className="text-[10px] text-cyan-500/70 mb-1">REPORT</p><p className="text-sm text-slate-300">"{activeRegion.description}"</p></div>
+                <div className="h-1/3 bg-slate-900/90 border border-slate-800 rounded-xl p-4 overflow-hidden flex flex-col">
+                    <h3 className="text-[10px] font-bold text-slate-400 uppercase mb-3">Live Feed</h3>
+                    <div className="overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+                        {filteredRegions.map((r, idx) => (
+                            <div key={idx} onClick={() => { setActiveRegion(r); if(mapInstanceRef.current) mapInstanceRef.current.flyTo([r.lat, r.lng], 9); }} className={`flex items-center justify-between p-3 rounded cursor-pointer hover:bg-slate-800 ${activeRegion?.id === r.id ? 'bg-slate-800 border border-cyan-900' : 'bg-slate-950/30'}`}>
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-2 h-2 rounded-full ${r.severity === 'critical' ? 'bg-red-500' : r.severity === 'high' ? 'bg-orange-500' : 'bg-yellow-400'}`}></div>
+                                    <div><p className="text-xs font-semibold text-slate-200">{r.name}</p><p className="text-[10px] text-slate-500">{r.disasterType}</p></div>
+                                </div>
                             </div>
-                         </div>
-                    </>
-                )}
-            </div>
-
-            <div className="h-1/3 bg-slate-900/90 border border-slate-800 rounded-xl p-4 overflow-hidden flex flex-col">
-                <h3 className="text-[10px] font-bold text-slate-400 uppercase mb-3">Live Feed</h3>
-                <div className="overflow-y-auto pr-2 space-y-2 custom-scrollbar">
-                    {filteredRegions.map((r, idx) => (
-                        <div key={idx} onClick={() => { setActiveRegion(r); if(mapInstanceRef.current) mapInstanceRef.current.flyTo([r.lat, r.lng], 9); }} className={`flex items-center justify-between p-3 rounded cursor-pointer hover:bg-slate-800 ${activeRegion?.id === r.id ? 'bg-slate-800 border border-cyan-900' : 'bg-slate-950/30'}`}>
-                            <div className="flex items-center gap-3">
-                                <div className={`w-2 h-2 rounded-full ${r.severity === 'critical' ? 'bg-red-500' : r.severity === 'high' ? 'bg-orange-500' : 'bg-yellow-400'}`}></div>
-                                <div><p className="text-xs font-semibold text-slate-200">{r.name}</p><p className="text-[10px] text-slate-500">{r.disasterType}</p></div>
-                            </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             </div>
-        </div>
+          </>
+        )}
       </main>
       <footer className="w-full text-center text-[10px] text-slate-500 py-2 border-t border-slate-900 bg-slate-950/80">
         Created By TOGPS - Kodekita08
