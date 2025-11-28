@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AlertTriangle, Droplets, Flame, Users, Activity, MapPin, Info, Wind, Search, Newspaper, Layers, Lock, LogOut, Save, Trash2, Plus, Edit3, X, Eye } from 'lucide-react';
+import disastersCsv from './data/disasters.csv?raw';
 
 const SUMATRA_PROVINCE_IDS = ['11', '12', '13', '14', '15', '16', '17', '18', '19', '21'];
 const PROVINCE_API_URL = 'https://ibnux.github.io/data-indonesia/provinsi.json';
@@ -16,31 +17,6 @@ const formatLocationName = (raw = '') => {
 };
 
 const normalizeLocationKey = (name = '') => name.replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
-
-// --- DATABASE LENGKAP (GABUNGAN DATA SUMUT + ACEH + SUMBAR) ---
-const CSV_SOURCE = `id,name,lat,lng,disasterType,victimsText,status,severity,description,lastUpdate,source
-humbahas,Kab. Humbang Hasundutan (Sumut),2.2588,98.8354,Banjir Bandang,"5 Meninggal, 4 Hilang",Darurat,high,"Banjir bandang menerjang pemukiman, menyebabkan 9 orang luka-luka.",27-Nov-2025,MetroTV
-tapsel,Kab. Tapanuli Selatan (Sumut),1.5000,99.2500,Banjir Bandang,"17 Meninggal, 2.8k Mengungsi",Kritis,critical,"~58 luka-luka akibat material longsor. Pengungsian di dataran tinggi.",28-Nov-2025,Detikcom
-taput,Kab. Tapanuli Utara (Sumut),2.0234,99.0667,Longsor & Banjir,"9 Meninggal",Siaga,high,"Longsor menutup akses jalan utama dan menimpa rumah warga.",28-Nov-2025,Detikcom
-sibolga,Kota Sibolga (Sumut),1.7385,98.7834,Banjir & Longsor,"8 Meninggal, 21 Hilang",Kritis,critical,"Jumlah korban hilang cukup tinggi, tim SAR fokus pada pencarian.",27-Nov-2025,Tirto.id
-tapteng,Kab. Tapanuli Tengah (Sumut),1.8797,98.7500,Banjir & Longsor,"4 Meninggal, 447 Mengungsi",Siaga,high,"Dampak banjir meluas di wilayah Sibolga dan Tapteng.",28-Nov-2025,Detikcom
-pakpak,Kab. Pakpak Bharat (Sumut),2.5667,98.2833,Banjir & Longsor,"2 Meninggal",Waspada,medium,"Curah hujan tinggi menyebabkan ketidakstabilan tanah.",28-Nov-2025,Detikcom
-nisel,Kab. Nias Selatan (Sumut),0.8297,97.8042,Banjir & Longsor,"1 Meninggal",Waspada,medium,"Pulau Nias terdampak cuaca ekstrem.",28-Nov-2025,Detikcom
-pidie,Kab. Pidie (Aceh),5.3860,95.9550,Banjir,-,Siaga,medium,"Banjir melanda wilayah Pidie akibat curah hujan tinggi.",27-Nov-2025,Antara
-acehbesar,Kab. Aceh Besar (Aceh),5.3940,95.5180,Banjir,-,Siaga,medium,"Banjir merendam pemukiman warga di Aceh Besar.",27-Nov-2025,Antara
-pidiejaya,Kab. Pidie Jaya (Aceh),5.1660,96.2160,Banjir,-,Siaga,medium,"Luapan sungai menyebabkan banjir di Pidie Jaya.",27-Nov-2025,Antara
-acehtimur,Kab. Aceh Timur (Aceh),4.6290,97.6430,Banjir,-,Siaga,medium,"Banjir meluas di beberapa kecamatan Aceh Timur.",27-Nov-2025,Antara
-acehutara,Kab. Aceh Utara (Aceh),4.9780,97.1420,Banjir,-,Siaga,medium,"Aceh Utara terdampak banjir cukup parah.",27-Nov-2025,Antara
-acehselatan,Kab. Aceh Selatan (Aceh),3.2850,97.2180,Banjir,-,Siaga,medium,"Genangan air dilaporkan di Aceh Selatan.",27-Nov-2025,Antara
-subulussalam,Kota Subulussalam (Aceh),2.6330,98.0060,Banjir,-,Siaga,medium,"Kota Subulussalam terdampak banjir kiriman.",27-Nov-2025,Antara
-naganraya,Kab. Nagan Raya (Aceh),4.1670,96.5000,Banjir,-,Siaga,medium,"Banjir merendam akses jalan di Nagan Raya.",27-Nov-2025,Antara
-padangpariaman,Kab. Padang Pariaman (Sumbar),-0.5830,100.1660,Banjir & Longsor,"4 Meninggal",Darurat,high,"Banjir dan longsor menelan korban jiwa.",27-Nov-2025,MetroTV
-agam,Kab. Agam (Sumbar),-0.2500,100.1660,Banjir & Longsor,"3 Meninggal",Darurat,high,"Longsor parah terjadi di wilayah Agam.",27-Nov-2025,MetroTV
-tanahdatar,Kab. Tanah Datar (Sumbar),-0.4660,100.5830,Banjir & Longsor,"1 Meninggal",Darurat,high,"Tanah Datar terdampak bencana hidrometeorologi.",27-Nov-2025,MetroTV
-padangpanjang,Kota Padang Panjang (Sumbar),-0.4620,100.3970,Banjir & Longsor,"1 Meninggal",Darurat,high,"Kota Padang Panjang melaporkan korban jiwa.",27-Nov-2025,MetroTV
-pasamanbarat,Kab. Pasaman Barat (Sumbar),0.1660,99.7500,Banjir & Longsor,"1 Meninggal",Darurat,high,"Pasaman Barat siaga banjir dan longsor.",27-Nov-2025,MetroTV
-bukittinggi,Kota Bukittinggi (Sumbar),-0.3050,100.3690,Longsor,-,Waspada,medium,"Longsor tebing dilaporkan di area Bukittinggi.",27-Nov-2025,Detik
-kotasolok,Kota Solok (Sumbar),-0.7950,100.6550,Banjir,-,Waspada,medium,"Genangan air meningkat di Kota Solok.",27-Nov-2025,Detik`;
 
 const parseCSV = (csvText) => {
   const lines = csvText.trim().split('\n');
@@ -78,8 +54,10 @@ const parseCSV = (csvText) => {
   });
 };
 
+const getFallbackRegions = () => parseCSV(disastersCsv);
+
 const SUMATRA_LOCATIONS = (() => {
-  const parsed = parseCSV(CSV_SOURCE);
+  const parsed = getFallbackRegions();
   const unique = new Map();
   parsed.forEach(({ id, name, lat, lng }) => {
     if (!name || Number.isNaN(lat) || Number.isNaN(lng)) return;
@@ -153,7 +131,7 @@ const App = () => {
     if (saved) {
       setRegions(JSON.parse(saved));
     } else {
-      const parsedData = parseCSV(CSV_SOURCE);
+      const parsedData = getFallbackRegions();
       setRegions(parsedData);
     }
 
