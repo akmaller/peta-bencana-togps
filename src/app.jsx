@@ -146,28 +146,13 @@ const App = () => {
   // --- 2. INITIALIZATION & DATA LOADING ---
   useEffect(() => {
     let isMounted = true;
-
-    const hydrateFromCache = () => {
-      if (typeof window === 'undefined') return null;
-      const saved = localStorage.getItem('disaster_data_csv_v3');
-      return saved ? JSON.parse(saved) : null;
-    };
-
-    const cached = hydrateFromCache();
-    if (cached) {
-      setRegions(cached);
-    } else {
-      setRegions(getFallbackRegions());
-    }
+    setRegions(getFallbackRegions());
 
     const loadServerData = async () => {
       try {
         const parsedData = await fetchServerRegions();
         if (isMounted && parsedData?.length) {
           setRegions(parsedData);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('disaster_data_csv_v3', JSON.stringify(parsedData));
-          }
         }
       } catch (error) {
         console.error('Failed to load server data:', error);
@@ -257,9 +242,6 @@ const App = () => {
             const latestString = JSON.stringify(latest);
             if (currentString !== latestString) {
               setRegions(latest);
-              if (typeof window !== 'undefined') {
-                localStorage.setItem('disaster_data_csv_v3', JSON.stringify(latest));
-              }
             }
           }
         }
@@ -307,14 +289,7 @@ const App = () => {
     };
   }, []);
 
-  // --- 3. PERSIST DATA ---
-  useEffect(() => {
-    if (regions.length > 0) {
-        localStorage.setItem('disaster_data_csv_v3', JSON.stringify(regions));
-    }
-  }, [regions]);
-
-  // --- 4. MAP RENDERING LOGIC ---
+  // --- 3. MAP RENDERING LOGIC ---
   useEffect(() => {
     if (!isLeafletReady || viewMode !== 'map' || !mapContainerRef.current) return;
     if (!window.L || typeof window.L.map !== 'function') return;
