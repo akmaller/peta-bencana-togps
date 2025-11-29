@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { AlertTriangle, Droplets, Flame, Users, Activity, MapPin, Info, Wind, Search, Newspaper, Layers, Lock, LogOut, Save, Trash2, Plus, Edit3, X, Eye } from 'lucide-react';
 import disastersCsv from './data/disasters.csv?raw';
 
@@ -114,7 +114,6 @@ const App = () => {
   const [regions, setRegions] = useState([]);
   const [viewMode, setViewMode] = useState('map'); // 'map', 'login', 'admin'
   const [activeRegion, setActiveRegion] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [isLeafletReady, setIsLeafletReady] = useState(false);
   const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
   const [locationOptions, setLocationOptions] = useState(SUMATRA_LOCATIONS);
@@ -130,12 +129,21 @@ const App = () => {
   const [mapFormError, setMapFormError] = useState(null);
   const [isSubmittingMapForm, setIsSubmittingMapForm] = useState(false);
   const [mapEditTarget, setMapEditTarget] = useState(null);
+  const [isEditingPosition, setIsEditingPosition] = useState(false);
+  const [positionEditCoords, setPositionEditCoords] = useState(null);
+  const [positionAuthorized, setPositionAuthorized] = useState(false);
+  const [isSavingPosition, setIsSavingPosition] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearchingLocations, setIsSearchingLocations] = useState(false);
   const [searchError, setSearchError] = useState(null);
   const [searchPointer, setSearchPointer] = useState(null);
+  const [sidebarPosition, setSidebarPosition] = useState(null);
+  const [sidebarLocked, setSidebarLocked] = useState(false);
+  const [passwordModal, setPasswordModal] = useState({ open: false, context: null });
+  const [passwordInputValue, setPasswordInputValue] = useState('');
+  const [passwordModalError, setPasswordModalError] = useState(null);
   
   // Auth State
   const [passwordInput, setPasswordInput] = useState('');
@@ -153,10 +161,49 @@ const App = () => {
   const regionsRef = useRef(regions);
   const searchDebounceRef = useRef(null);
   const searchAbortRef = useRef(null);
+  const sidebarDragRef = useRef({ active: false, offsetX: 0, offsetY: 0 });
+
+  const computeSidebarPosition = useCallback((region, force = false) => {
+    if (!region || !mapInstanceRef.current || !mapContainerRef.current) return;
+    if (sidebarLocked && !force) return;
+    const map = mapInstanceRef.current;
+    const containerPoint = map.latLngToContainerPoint([region.lat, region.lng]);
+    const rect = mapContainerRef.current.getBoundingClientRect();
+    const modalWidth = 320;
+    const modalHeight = 360;
+    let left = rect.left + containerPoint.x + 24;
+    let top = rect.top + containerPoint.y - modalHeight / 2;
+    if (left + modalWidth > rect.right - 16) {
+      left = rect.left + containerPoint.x - modalWidth - 24;
+    }
+    if (left < rect.left + 16) left = rect.left + 16;
+    if (top + modalHeight > rect.bottom - 16) top = rect.bottom - modalHeight - 16;
+    if (top < rect.top + 16) top = rect.top + 16;
+    setSidebarPosition({ left, top });
+  }, [sidebarLocked]);
 
   useEffect(() => {
     regionsRef.current = regions;
   }, [regions]);
+
+  useEffect(() => {
+    if (!activeRegion) {
+      setSidebarPosition(null);
+      return;
+    }
+    setSidebarLocked(false);
+    computeSidebarPosition(activeRegion, true);
+  }, [activeRegion, computeSidebarPosition]);
+
+  useEffect(() => {
+    if (!activeRegion || !mapInstanceRef.current || sidebarLocked) return;
+    const handler = () => computeSidebarPosition(activeRegion);
+    const map = mapInstanceRef.current;
+    map.on('move zoom', handler);
+    return () => {
+      map.off('move zoom', handler);
+    };
+  }, [activeRegion, computeSidebarPosition, sidebarLocked]);
 
   // --- 2. INITIALIZATION & DATA LOADING ---
   useEffect(() => {
@@ -234,6 +281,12 @@ const App = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    setIsEditingPosition(false);
+    setPositionEditCoords(null);
+    resetPositionAuth();
+  }, [activeRegion?.id]);
 
   useEffect(() => {
     return () => {
@@ -429,6 +482,9 @@ const App = () => {
         const isAccessCut = typeLower.includes('akses putus');
         const isAccessAir = typeLower.includes('akses udara');
         const isAccessSafe = typeLower.includes('akses aman');
+        const isActive = activeRegion?.id === region.id;
+        const scale = isActive ? 1.5 : 1;
+        const size = (value) => value * scale;
 
         const severityClass = region.severity === 'critical' ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.6)]' : 
                               region.severity === 'high' ? 'bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.6)]' : 
@@ -437,43 +493,53 @@ const App = () => {
         
         const iconHtml = isAccessAir
           ? `
-            <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
-              <div style="width: 32px; height: 32px; border-radius: 9999px; background: rgba(16,185,129,0.15); border: 2px solid rgba(16,185,129,0.8); box-shadow: 0 0 12px rgba(16,185,129,0.4);"></div>
-              <div style="position: absolute; color: #22c55e; font-size: 18px; font-weight: bold;">✈</div>
+            <div style="position: relative; width: ${size(36)}px; height: ${size(36)}px; display: flex; align-items: center; justify-content: center;">
+              <div style="width: ${size(32)}px; height: ${size(32)}px; border-radius: 9999px; background: rgba(16,185,129,0.15); border: ${size(2)}px solid rgba(16,185,129,0.8); box-shadow: 0 0 12px rgba(16,185,129,0.4);"></div>
+              <div style="position: absolute; color: #22c55e; font-size: ${size(18)}px; font-weight: bold;">✈</div>
             </div>
           `
           : isAccessCut
           ? `
-            <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">
-              <div style="width: 18px; height: 18px; border-radius: 9999px; background: #dc2626; border: 3px solid #7f1d1d; box-shadow: 0 0 8px rgba(220,38,38,0.65);"></div>
-              <div style="position: absolute; width: 12px; height: 3px; background: #fff; border-radius: 9999px;"></div>
+            <div style="position: relative; width: ${size(24)}px; height: ${size(24)}px; display: flex; align-items: center; justify-content: center;">
+              <div style="width: ${size(18)}px; height: ${size(18)}px; border-radius: 9999px; background: #dc2626; border: ${size(3)}px solid #7f1d1d; box-shadow: 0 0 8px rgba(220,38,38,0.65);"></div>
+              <div style="position: absolute; width: ${size(12)}px; height: ${size(3)}px; background: #fff; border-radius: 9999px;"></div>
             </div>
           `
           : isAccessSafe
           ? `
-            <div style="position: relative; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;">
-              <div style="width: 10px; height: 10px; border-radius: 9999px; background: #22c55e; border: 2px solid #064e3b;"></div>
+            <div style="position: relative; width: ${size(20)}px; height: ${size(20)}px; display: flex; align-items: center; justify-content: center;">
+              <div style="width: ${size(10)}px; height: ${size(10)}px; border-radius: 9999px; background: #22c55e; border: ${size(2)}px solid #064e3b;"></div>
             </div>
           `
           : `
-            <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">
+            <div style="position: relative; width: ${size(24)}px; height: ${size(24)}px; display: flex; align-items: center; justify-content: center;">
               <div class="${pulseClass} absolute inset-0 rounded-full ${severityClass} opacity-75"></div>
-              <div class="relative w-3 h-3 rounded-full ${severityClass} border-2 border-slate-900"></div>
+              <div style="width: ${size(12)}px; height: ${size(12)}px;" class="relative rounded-full ${severityClass} border-2 border-slate-900"></div>
             </div>
           `;
 
         const customIcon = window.L.divIcon({
             className: 'custom-div-icon',
             html: iconHtml,
-            iconSize: isAccessAir ? [36, 36] : isAccessCut ? [24, 24] : isAccessSafe ? [20, 20] : [24, 24],
-            iconAnchor: isAccessAir ? [18, 18] : isAccessCut ? [12, 12] : isAccessSafe ? [10, 10] : [12, 12]
+            iconSize: isAccessAir ? [size(36), size(36)] : isAccessCut ? [size(24), size(24)] : isAccessSafe ? [size(20), size(20)] : [size(24), size(24)],
+            iconAnchor: isAccessAir ? [size(18), size(18)] : isAccessCut ? [size(12), size(12)] : isAccessSafe ? [size(10), size(10)] : [size(12), size(12)]
         });
 
-        const marker = window.L.marker([region.lat, region.lng], { icon: customIcon }).addTo(map);
+        const marker = window.L.marker([region.lat, region.lng], { icon: customIcon, draggable: isActive && isEditingPosition }).addTo(map);
         marker.on('click', () => {
             setActiveRegion(region);
-            map.flyTo([region.lat, region.lng], 9, { animate: true, duration: 1.5 });
+            computeSidebarPosition(region);
         });
+        if (isActive && isEditingPosition) {
+            marker.on('drag', (event) => {
+                const { lat, lng } = event.latlng;
+                setPositionEditCoords({ lat, lng });
+            });
+            marker.on('dragend', (event) => {
+                const { lat, lng } = event.target.getLatLng();
+                setPositionEditCoords({ lat, lng });
+            });
+        }
         markersRef.current[region.id] = marker;
     });
      if (searchPointer) {
@@ -507,7 +573,7 @@ const App = () => {
         }
         addMarkersToMap(mapInstanceRef.current);
     }
-  }, [regions, searchPointer]);
+  }, [regions, searchPointer, activeRegion, isEditingPosition]);
 
   useEffect(() => {
     if (!editingId || !editFormData?.name) return;
@@ -677,13 +743,6 @@ const App = () => {
     return <AlertTriangle size={24} />;
   };
 
-  const filteredRegions = useMemo(() => {
-    return regions.filter(r => 
-      (r.name && r.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (r.disasterType && r.disasterType.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-  }, [searchTerm, regions]);
-
   const showFeedback = (message, duration = 6000) => {
     setSyncFeedback(message);
     if (feedbackTimerRef.current) {
@@ -736,6 +795,65 @@ const App = () => {
 
   const closeSearchModal = () => {
     setIsSearchModalOpen(false);
+  };
+
+  const activatePositionEditing = () => {
+    if (!activeRegion) return;
+    setIsEditingPosition(true);
+    setPositionEditCoords({ lat: activeRegion.lat, lng: activeRegion.lng });
+  };
+
+  const openPasswordModal = (context) => {
+    setPasswordModal({ open: true, context });
+    setPasswordInputValue('');
+    setPasswordModalError(null);
+  };
+
+  const closePasswordModal = () => {
+    setPasswordModal({ open: false, context: null });
+    setPasswordInputValue('');
+    setPasswordModalError(null);
+  };
+
+  const handlePasswordModalSubmit = async (event) => {
+    event.preventDefault();
+    setPasswordModalError(null);
+    try {
+      const hash = await hashPassword(passwordInputValue);
+      if (hash !== TARGET_HASH) {
+        setPasswordModalError('Password salah.');
+        return;
+      }
+      if (passwordModal.context === 'position-edit') {
+        setPositionAuthorized(true);
+        activatePositionEditing();
+      }
+      closePasswordModal();
+    } catch (error) {
+      console.error('Password modal error:', error);
+      setPasswordModalError('Gagal memverifikasi password.');
+    }
+  };
+
+  const handlePositionEditButtonClick = () => {
+    if (!activeRegion) return;
+    if (isEditingPosition) {
+      setIsEditingPosition(false);
+      setPositionEditCoords(null);
+      return;
+    }
+    if (positionAuthorized) {
+      activatePositionEditing();
+      return;
+    }
+    openPasswordModal('position-edit');
+  };
+
+  const resetPositionAuth = () => {
+    setPositionAuthorized(false);
+    if (passwordModal.context === 'position-edit') {
+      closePasswordModal();
+    }
   };
 
   const persistRegions = async (nextRegions, { successMessage } = {}) => {
@@ -815,80 +933,167 @@ const App = () => {
       : [...regionsRef.current, newEntry];
     const success = await persistRegions(nextRegions, { successMessage: isEditing ? 'Titik berhasil diperbarui.' : 'Titik baru berhasil ditambahkan.' });
     setIsSubmittingMapForm(false);
+  if (success) {
+    if (isEditingPosition) {
+      setIsEditingPosition(false);
+      setPositionEditCoords(null);
+      resetPositionAuth();
+    }
+    closeMapForm();
+  }
+};
+
+  const startSidebarDrag = (event) => {
+    if (!sidebarPosition) return;
+    if (event?.preventDefault) event.preventDefault();
+    const pointer = event?.touches ? event.touches[0] : event;
+    if (!pointer) return;
+    setSidebarLocked(true);
+    sidebarDragRef.current = {
+      active: true,
+      offsetX: pointer.clientX - sidebarPosition.left,
+      offsetY: pointer.clientY - sidebarPosition.top
+    };
+    window.addEventListener('mousemove', handleSidebarDrag);
+    window.addEventListener('mouseup', stopSidebarDrag);
+    window.addEventListener('touchmove', handleSidebarDrag, { passive: false });
+    window.addEventListener('touchend', stopSidebarDrag);
+  };
+
+  const handleSidebarDrag = (event) => {
+    const info = sidebarDragRef.current;
+    if (!info.active) return;
+    if (event?.preventDefault) event.preventDefault();
+    const pointer = event?.touches ? event.touches[0] : event;
+    if (!pointer) return;
+    const left = pointer.clientX - info.offsetX;
+    const top = pointer.clientY - info.offsetY;
+    setSidebarPosition({ left, top });
+  };
+
+  const stopSidebarDrag = () => {
+    sidebarDragRef.current.active = false;
+    window.removeEventListener('mousemove', handleSidebarDrag);
+    window.removeEventListener('mouseup', stopSidebarDrag);
+    window.removeEventListener('touchmove', handleSidebarDrag);
+    window.removeEventListener('touchend', stopSidebarDrag);
+  };
+  const handleSavePositionEdit = async () => {
+    if (!activeRegion || !positionEditCoords) return;
+    setIsSavingPosition(true);
+    const updatedRegion = { ...activeRegion, lat: positionEditCoords.lat, lng: positionEditCoords.lng };
+    const nextRegions = regionsRef.current.map(region => region.id === updatedRegion.id ? updatedRegion : region);
+    const success = await persistRegions(nextRegions, { successMessage: 'Posisi titik diperbarui.' });
+    setIsSavingPosition(false);
     if (success) {
-      closeMapForm();
+      setActiveRegion(updatedRegion);
+      setIsEditingPosition(false);
+      setPositionEditCoords(null);
     }
   };
 
   // --- RENDERERS ---
 
-  const renderMapSection = (variant = 'desktop') => {
-    const mobileVariant = variant === 'mobile';
-    return (
-      <div className={`${mobileVariant ? 'relative w-full h-full bg-slate-900 overflow-hidden' : 'flex-[2] relative bg-slate-900 border border-slate-800 rounded-xl overflow-hidden'}`}>
-        <div
-          id="map-container"
-          ref={mapContainerRef}
-          className={`${mobileVariant ? 'relative w-full h-full min-h-[calc(100vh-40px)]' : 'relative w-full h-full'} bg-slate-900 z-0`}
-        >
-          {!isLeafletReady && (
-            <div className="absolute inset-0 flex items-center justify-center text-slate-500 animate-pulse">
-              Initializing Map System...
-            </div>
-          )}
-        </div>
-        <div className={`absolute ${mobileVariant ? 'top-3 left-3' : 'bottom-4 left-4'} z-[400] text-[10px] font-mono text-cyan-500/80 bg-slate-950/80 px-3 py-1.5 rounded-full border border-slate-800/70`}>
-          LAT: {activeRegion?.lat?.toFixed(4) || '-'} | LNG: {activeRegion?.lng?.toFixed(4) || '-'}
-        </div>
-        {mobileVariant && (
-          <div className="absolute top-3 right-3 z-[450] flex gap-2">
-            <button
-              onClick={openSearchModal}
-              className="p-2 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-cyan-300 transition"
-              aria-label="Cari Lokasi"
-            >
-              <Search size={16} />
-            </button>
-            <button
-              onClick={() => setViewMode('login')}
-              className="p-2 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-cyan-300 transition"
-              aria-label="Admin Login"
-            >
-              <Lock size={16} />
-            </button>
+  const renderMapSection = () => (
+    <div className="relative w-full h-screen bg-slate-900">
+      <div id="map-container" ref={mapContainerRef} className="absolute inset-0 bg-slate-900">
+        {!isLeafletReady && (
+          <div className="absolute inset-0 flex items-center justify-center text-slate-500 animate-pulse">
+            Initializing Map System...
           </div>
         )}
+      </div>
+      <div className="absolute top-3 left-3 z-[400] text-[10px] font-mono text-cyan-500/80 bg-slate-950/80 px-3 py-1.5 rounded-full border border-slate-800/70">
+        LAT: {activeRegion?.lat?.toFixed(4) || '-'} | LNG: {activeRegion?.lng?.toFixed(4) || '-'}
+      </div>
+      <div className="absolute top-3 right-3 z-[450] flex gap-2">
+        <button
+          onClick={openSearchModal}
+          className="p-2 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-cyan-300 transition"
+          aria-label="Cari Lokasi"
+        >
+          <Search size={16} />
+        </button>
+        <button
+          onClick={() => setViewMode('login')}
+          className="p-2 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-cyan-300 transition"
+          aria-label="Admin Login"
+        >
+          <Lock size={16} />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderSidebarModal = () => {
+    if (!activeRegion || !sidebarPosition) return null;
+    const top = sidebarPosition.top;
+    const left = sidebarPosition.left;
+    return (
+      <div className="fixed z-[550] pointer-events-auto" style={{ top, left }}>
+        <div className="w-80 bg-slate-900/95 border border-slate-700 rounded-2xl shadow-2xl p-4 relative backdrop-blur">
+          <button onClick={() => { setActiveRegion(null); setSidebarPosition(null); }} className="absolute top-3 right-3 text-slate-400 hover:text-white">
+            <X size={16} />
+          </button>
+          <div
+            className="flex items-center gap-2 text-[10px] tracking-[0.2em] uppercase text-slate-500/80 mb-2 cursor-move select-none pr-6"
+            onMouseDown={startSidebarDrag}
+            onTouchStart={startSidebarDrag}
+          >
+            <span className="inline-flex h-1.5 w-12 rounded-full bg-slate-600/70" />
+            Geser
+          </div>
+          <h2 className="text-lg font-bold text-white mb-2">{activeRegion.name}</h2>
+          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getSeverityColor(activeRegion.severity)}`}>{activeRegion.status}</span>
+          <div className="mt-3 space-y-3 text-sm">
+            <div className="bg-slate-950/40 border border-slate-800 rounded p-2">
+              <p className="text-[10px] text-slate-500">TYPE</p>
+              <p className="font-semibold text-white">{activeRegion.disasterType}</p>
+            </div>
+            <div className="bg-slate-950/40 border border-slate-800 rounded p-2">
+              <p className="text-[10px] text-slate-500">IMPACT</p>
+              <p className="font-mono text-cyan-400 text-xs">{activeRegion.victimsText}</p>
+            </div>
+            <div className="bg-slate-800/30 border border-slate-800 rounded p-2">
+              <p className="text-[10px] text-cyan-500/70 mb-1">REPORT</p>
+              <p className="text-xs text-slate-300">"{activeRegion.description}"</p>
+            </div>
+            <div className="text-[10px] text-slate-500 font-mono">
+              Lat {activeRegion.lat?.toFixed(4)} · Lng {activeRegion.lng?.toFixed(4)} <br /> Update {activeRegion.lastUpdate}
+            </div>
+            <div className="flex flex-col gap-2">
+              <button onClick={() => openMapFormAt(activeRegion.lat, activeRegion.lng, activeRegion)} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg flex items-center justify-center gap-2 disabled:bg-slate-700" disabled={isEditingPosition}>
+                <Edit3 size={14} /> Edit Data Titik
+              </button>
+              <button
+                onClick={handlePositionEditButtonClick}
+                className={`w-full py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2 ${isEditingPosition ? 'bg-yellow-500 text-slate-900' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}
+              >
+                {isEditingPosition ? 'Batalkan Edit Posisi' : 'Edit Posisi Titik'}
+              </button>
+              {isEditingPosition && (
+                <div className="text-[11px] text-slate-400 font-mono text-center">
+                  Lat {(positionEditCoords?.lat ?? activeRegion.lat).toFixed(5)} · Lng {(positionEditCoords?.lng ?? activeRegion.lng).toFixed(5)}
+                </div>
+              )}
+              {isEditingPosition && (
+                <button
+                  onClick={handleSavePositionEdit}
+                  className="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-xs font-semibold text-white rounded-lg flex items-center justify-center gap-2 disabled:bg-slate-700"
+                  disabled={isSavingPosition || !positionEditCoords}
+                >
+                  {isSavingPosition ? <Activity size={14} className="animate-spin" /> : null}
+                  {isSavingPosition ? 'Menyimpan...' : 'Simpan Posisi Titik'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
 
-  const renderMobileSnackbar = () => {
-    if (!isMobile || !activeRegion) return null;
-    return (
-      <div className="absolute bottom-4 left-4 right-4 z-[500] pointer-events-auto">
-        <div className="bg-slate-950/95 border border-slate-800 rounded-2xl p-4 shadow-2xl ring-1 ring-cyan-500/20">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold text-white">{activeRegion.name}</p>
-              <span className={`mt-1 inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${getSeverityColor(activeRegion.severity)}`}>{activeRegion.status}</span>
-            </div>
-            <button onClick={() => setActiveRegion(null)} className="text-slate-400 hover:text-white transition p-1" aria-label="Tutup detail">
-              <X size={14} />
-            </button>
-          </div>
-          <div className="mt-3 space-y-1 text-xs text-slate-300">
-            <p className="font-semibold text-slate-100">{activeRegion.disasterType}</p>
-            <p className="font-mono text-cyan-400 text-[11px]">{activeRegion.victimsText}</p>
-            <p className="text-slate-400 text-[11px] italic">"{activeRegion.description}"</p>
-          </div>
-          <div className="mt-3 text-[10px] text-slate-500 flex justify-between gap-2">
-            <span>Lat {activeRegion.lat?.toFixed(2)} / Lng {activeRegion.lng?.toFixed(2)}</span>
-            <span>Update {activeRegion.lastUpdate}</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const renderMobileSnackbar = () => null;
 
   const renderMapAddOverlay = () => {
     if (!mapAddForm.open) return null;
@@ -1004,6 +1209,38 @@ const App = () => {
               ))
             )}
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderPasswordModal = () => {
+    if (!passwordModal.open) return null;
+    const contextLabel = passwordModal.context === 'position-edit' ? 'Edit Posisi Titik' : 'Aksi Admin';
+    return (
+      <div className="fixed inset-0 z-[700] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm px-4 py-6">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 relative shadow-2xl">
+          <button onClick={closePasswordModal} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+            <X size={18} />
+          </button>
+          <div className="flex items-center gap-2 text-cyan-400 font-semibold text-sm mb-1">
+            <Lock size={18} /> Verifikasi Password
+          </div>
+          <p className="text-xs text-slate-400 mb-4">Diperlukan untuk {contextLabel}.</p>
+          <form onSubmit={handlePasswordModalSubmit} className="space-y-3">
+            <input
+              type="password"
+              value={passwordInputValue}
+              onChange={(e) => setPasswordInputValue(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white"
+              placeholder="Masukkan password admin"
+              autoFocus
+            />
+            {passwordModalError && <p className="text-xs text-red-400">{passwordModalError}</p>}
+            <button type="submit" className="w-full py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold flex items-center justify-center gap-2">
+              <Lock size={14} /> Konfirmasi
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -1178,82 +1415,14 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden relative selection:bg-cyan-500/30">
-      <header className="absolute top-0 left-0 w-full p-4 z-50 hidden md:flex justify-between items-center backdrop-blur-md bg-slate-900/80 border-b border-slate-800">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold tracking-wider text-cyan-400 flex items-center gap-2"><Activity className="animate-pulse" /> SUMATERA MONITOR</h1>
-        </div>
-        <div className="flex items-center gap-4 mt-2 md:mt-0">
-            <div className="relative">
-                <input type="text" placeholder="Search..." className="bg-slate-800 border border-slate-700 rounded-full px-4 py-2 pl-10 text-xs w-48 md:w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                <Search className="absolute left-3 top-2.5 text-slate-500" size={14} />
-            </div>
-            <button onClick={openSearchModal} className="p-2 text-slate-400 hover:text-cyan-400 border border-slate-700 rounded-full">
-              <Search size={16} />
-            </button>
-            <button onClick={() => setViewMode('login')} className="p-2 text-slate-500 hover:text-cyan-400 border-l border-slate-700 pl-4"><Lock size={16} /></button>
-        </div>
-      </header>
-
-      <main
-        className={isMobile ? 'relative z-10 px-0 pb-0' : 'flex flex-col md:flex-row h-screen pt-24 pb-4 px-4 gap-4 relative z-10'}
-        style={isMobile ? { minHeight: 'calc(100vh - 40px)' } : undefined}
-      >
-        {isMobile ? (
-          <div className="relative h-full w-full">
-            {renderMapSection('mobile')}
-            {renderMobileSnackbar()}
-          </div>
-        ) : (
-          <>
-            {renderMapSection('desktop')}
-            <div className="flex-1 min-w-[320px] max-w-md flex flex-col gap-3 pointer-events-auto">
-                <div className={`flex-1 bg-slate-900/90 backdrop-blur-xl border border-slate-700 rounded-xl p-5 relative overflow-hidden flex flex-col ${activeRegion ? 'ring-1 ring-cyan-500/30' : ''}`}>
-                    {!activeRegion ? (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-500 text-center"><MapPin size={48} className="mb-4 opacity-50"/>SELECT REGION</div>
-                    ) : (
-                        <>
-                             <div className={`absolute -top-20 -right-20 w-64 h-64 blur-[60px] opacity-20 pointer-events-none rounded-full ${getSeverityBg(activeRegion.severity)}`}></div>
-                             <div className="relative z-10">
-                                <h2 className="text-xl font-bold text-white mb-2">{activeRegion.name}</h2>
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getSeverityColor(activeRegion.severity)}`}>{activeRegion.status}</span>
-                                <div className="mt-4 space-y-3">
-                                    <div className="bg-slate-950/50 p-3 rounded border border-slate-800"><p className="text-[10px] text-slate-400">TYPE</p><p className="font-semibold">{activeRegion.disasterType}</p></div>
-                                    <div className="bg-slate-950/50 p-3 rounded border border-slate-800"><p className="text-[10px] text-slate-400">IMPACT</p><p className="font-mono">{activeRegion.victimsText}</p></div>
-                                    <div className="bg-slate-800/30 p-3 rounded border border-slate-800"><p className="text-[10px] text-cyan-500/70 mb-1">REPORT</p><p className="text-sm text-slate-300">"{activeRegion.description}"</p></div>
-                                    <div className="pt-2">
-                                      <button onClick={() => openMapFormAt(activeRegion.lat, activeRegion.lng, activeRegion)} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg flex items-center justify-center gap-2">
-                                        <Edit3 size={14} /> Edit Titik Ini
-                                      </button>
-                                    </div>
-                                </div>
-                         </div>
-                        </>
-                    )}
-                </div>
-
-                <div className="h-1/3 bg-slate-900/90 border border-slate-800 rounded-xl p-4 overflow-hidden flex flex-col">
-                    <h3 className="text-[10px] font-bold text-slate-400 uppercase mb-3">Live Feed</h3>
-                    <div className="overflow-y-auto pr-2 space-y-2 custom-scrollbar">
-                        {filteredRegions.map((r, idx) => (
-                            <div key={idx} onClick={() => { setActiveRegion(r); if(mapInstanceRef.current) mapInstanceRef.current.flyTo([r.lat, r.lng], 9); }} className={`flex items-center justify-between p-3 rounded cursor-pointer hover:bg-slate-800 ${activeRegion?.id === r.id ? 'bg-slate-800 border border-cyan-900' : 'bg-slate-950/30'}`}>
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-2 h-2 rounded-full ${r.severity === 'critical' ? 'bg-red-500' : r.severity === 'high' ? 'bg-orange-500' : 'bg-yellow-400'}`}></div>
-                                    <div><p className="text-xs font-semibold text-slate-200">{r.name}</p><p className="text-[10px] text-slate-500">{r.disasterType}</p></div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-          </>
-        )}
+      <main className="relative z-10 h-screen">
+        {renderMapSection()}
+        {renderSidebarModal()}
       </main>
       {renderMapAddOverlay()}
       {renderSearchModal()}
-      <footer className="w-full text-center text-[10px] text-slate-500 py-2 border-t border-slate-900 bg-slate-950/80">
-        Created By TOGPS - Kodekita08
-      </footer>
-      <style>{`.custom-scrollbar::-webkit-scrollbar { width: 4px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; rounded: 4px; } .leaflet-popup-content-wrapper { background: #0f172a; color: #fff; }`}</style>
+      {renderPasswordModal()}
+      <style>{` .custom-scrollbar::-webkit-scrollbar { width: 4px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; rounded: 4px; } .leaflet-popup-content-wrapper { background: #0f172a; color: #fff; } `}</style>
     </div>
   );
 };
