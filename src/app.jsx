@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { AlertTriangle, Droplets, Flame, Users, Activity, MapPin, Info, Wind, Search, Newspaper, Layers, Lock, LogOut, Save, Trash2, Plus, Edit3, X, Eye } from 'lucide-react';
+import { AlertTriangle, Droplets, Flame, Users, Activity, MapPin, Info, Wind, Search, Newspaper, Layers, Lock, LogOut, Save, Trash2, Plus, Edit3, X, Eye, Navigation } from 'lucide-react';
 import disastersCsv from './data/disasters.csv?raw';
 
 const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -144,6 +144,14 @@ const App = () => {
   const [passwordModal, setPasswordModal] = useState({ open: false, context: null });
   const [passwordInputValue, setPasswordInputValue] = useState('');
   const [passwordModalError, setPasswordModalError] = useState(null);
+  // User GPS State
+  const [userLocation, setUserLocation] = useState(null);
+  const [isTrackingUser, setIsTrackingUser] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationPermissionState, setLocationPermissionState] = useState('unknown');
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [locationModalError, setLocationModalError] = useState(null);
+  const [locationToast, setLocationToast] = useState(null);
   
   // Auth State
   const [passwordInput, setPasswordInput] = useState('');
@@ -162,6 +170,11 @@ const App = () => {
   const searchDebounceRef = useRef(null);
   const searchAbortRef = useRef(null);
   const sidebarDragRef = useRef({ active: false, offsetX: 0, offsetY: 0 });
+  const userWatchIdRef = useRef(null);
+  const userMarkerRef = useRef(null);
+  const userAccuracyRef = useRef(null);
+  const hasCenteredOnUserRef = useRef(false);
+  const locationToastTimerRef = useRef(null);
 
   const computeSidebarPosition = useCallback((region, force = false) => {
     if (!region || !mapInstanceRef.current || !mapContainerRef.current) return;
@@ -287,6 +300,28 @@ const App = () => {
     setPositionEditCoords(null);
     resetPositionAuth();
   }, [activeRegion?.id]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) return undefined;
+    let isActive = true;
+    let cleanup = null;
+    navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+      if (!isActive || !status) return;
+      setLocationPermissionState(status.state || 'unknown');
+      const handleChange = () => setLocationPermissionState(status.state || 'unknown');
+      if (typeof status.addEventListener === 'function') {
+        status.addEventListener('change', handleChange);
+        cleanup = () => status.removeEventListener('change', handleChange);
+      } else if ('onchange' in status) {
+        status.onchange = handleChange;
+        cleanup = () => { status.onchange = null; };
+      }
+    }).catch(() => {});
+    return () => {
+      isActive = false;
+      if (cleanup) cleanup();
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -441,6 +476,8 @@ const App = () => {
         }
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
+        userMarkerRef.current = null;
+        userAccuracyRef.current = null;
     }
 
     try {
@@ -574,6 +611,74 @@ const App = () => {
         addMarkersToMap(mapInstanceRef.current);
     }
   }, [regions, searchPointer, activeRegion, isEditingPosition]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !window.L) return;
+    if (!userLocation) {
+      if (userMarkerRef.current) {
+        map.removeLayer(userMarkerRef.current);
+        userMarkerRef.current = null;
+      }
+      if (userAccuracyRef.current) {
+        map.removeLayer(userAccuracyRef.current);
+        userAccuracyRef.current = null;
+      }
+      return;
+    }
+    const rotation = Number.isFinite(userLocation.heading) ? userLocation.heading : 0;
+    const triangleIcon = window.L.divIcon({
+      className: 'user-location-triangle',
+      html: `
+        <div style="position: relative; width: 0; height: 0; filter: drop-shadow(0 0 8px rgba(14,165,233,0.7));">
+          <div style="
+            width: 0;
+            height: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 20px solid rgba(56,189,248,0.95);
+            transform: rotate(${rotation}deg);
+          "></div>
+        </div>
+      `,
+      iconSize: [20, 20],
+      iconAnchor: [10, 18]
+    });
+    if (!userMarkerRef.current) {
+      userMarkerRef.current = window.L.marker([userLocation.lat, userLocation.lng], {
+        icon: triangleIcon,
+        interactive: false,
+        zIndexOffset: 1500
+      }).addTo(map);
+    } else {
+      userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
+      userMarkerRef.current.setIcon(triangleIcon);
+    }
+    if (Number.isFinite(userLocation.accuracy)) {
+      const radius = Math.max(userLocation.accuracy, 15);
+      if (!userAccuracyRef.current) {
+        userAccuracyRef.current = window.L.circle([userLocation.lat, userLocation.lng], {
+          radius,
+          color: '#38bdf8',
+          fillColor: '#0ea5e9',
+          fillOpacity: 0.12,
+          opacity: 0.8,
+          weight: 1,
+          interactive: false
+        }).addTo(map);
+      } else {
+        userAccuracyRef.current.setLatLng([userLocation.lat, userLocation.lng]);
+        userAccuracyRef.current.setRadius(radius);
+      }
+    } else if (userAccuracyRef.current) {
+      map.removeLayer(userAccuracyRef.current);
+      userAccuracyRef.current = null;
+    }
+    if (!hasCenteredOnUserRef.current) {
+      map.flyTo([userLocation.lat, userLocation.lng], Math.max(map.getZoom(), 12), { duration: 0.75 });
+      hasCenteredOnUserRef.current = true;
+    }
+  }, [userLocation, isLeafletReady]);
 
   useEffect(() => {
     if (!editingId || !editFormData?.name) return;
@@ -753,6 +858,15 @@ const App = () => {
     }
   };
 
+  const pushLocationToast = useCallback((message, type = 'info', duration = 5000) => {
+    if (!message) return;
+    setLocationToast({ message, type });
+    if (locationToastTimerRef.current) {
+      clearTimeout(locationToastTimerRef.current);
+    }
+    locationToastTimerRef.current = setTimeout(() => setLocationToast(null), duration);
+  }, []);
+
   const resetMapFormState = () => {
     setMapFormData({ type: 'Akses Putus', name: '', description: '', victims: '', status: '', severity: 'medium' });
     setMapFormPassword('');
@@ -855,6 +969,151 @@ const App = () => {
       closePasswordModal();
     }
   };
+
+  const stopTrackingUser = useCallback(({ silent } = {}) => {
+    if (typeof navigator !== 'undefined' && navigator.geolocation && userWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(userWatchIdRef.current);
+    }
+    userWatchIdRef.current = null;
+    setIsTrackingUser(false);
+    setIsLocating(false);
+    setUserLocation(null);
+    hasCenteredOnUserRef.current = false;
+    if (mapInstanceRef.current) {
+      if (userMarkerRef.current) {
+        mapInstanceRef.current.removeLayer(userMarkerRef.current);
+      }
+      if (userAccuracyRef.current) {
+        mapInstanceRef.current.removeLayer(userAccuracyRef.current);
+      }
+    }
+    userMarkerRef.current = null;
+    userAccuracyRef.current = null;
+    if (!silent) {
+      setLocationModalError(null);
+    }
+  }, []);
+
+  const startTrackingUser = useCallback(() => {
+    if (isLocating || userWatchIdRef.current !== null) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setLocationModalError('Peramban ini tidak mendukung GPS.');
+      pushLocationToast('Peramban ini tidak mendukung GPS.', 'error');
+      return;
+    }
+    setLocationModalError(null);
+    setIsLocationModalOpen(false);
+    setIsLocating(true);
+    try {
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          setIsLocating(false);
+          setIsTrackingUser((prev) => {
+            if (!prev) {
+              pushLocationToast('Lokasi Anda ditampilkan di peta.', 'success');
+            }
+            return true;
+          });
+          const { latitude, longitude, accuracy, heading, speed } = position.coords || {};
+          setUserLocation({
+            lat: latitude,
+            lng: longitude,
+            accuracy: Number.isFinite(accuracy) ? accuracy : 25,
+            heading: Number.isFinite(heading) ? heading : 0,
+            speed: Number.isFinite(speed) ? speed : 0,
+            timestamp: position.timestamp
+          });
+          setLocationPermissionState('granted');
+        },
+        (error) => {
+          setIsLocating(false);
+          if (!error) {
+            pushLocationToast('Gagal mendapatkan lokasi Anda.', 'error');
+            stopTrackingUser({ silent: true });
+            return;
+          }
+          if (error.code === error.PERMISSION_DENIED) {
+            setLocationPermissionState('denied');
+            pushLocationToast('Izin GPS ditolak. Aktifkan melalui pengaturan browser.', 'error');
+          } else if (error.code === error.POSITION_UNAVAILABLE) {
+            pushLocationToast('Sinyal GPS tidak tersedia saat ini.', 'error');
+          } else if (error.code === error.TIMEOUT) {
+            pushLocationToast('Penentuan lokasi melebihi batas waktu.', 'error');
+          } else {
+            pushLocationToast('Gagal mendapatkan lokasi Anda.', 'error');
+          }
+          stopTrackingUser({ silent: true });
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 20000
+        }
+      );
+      userWatchIdRef.current = watchId;
+    } catch (error) {
+      setIsLocating(false);
+      setLocationModalError('Browser memblokir akses GPS.');
+      pushLocationToast('Browser memblokir akses GPS.', 'error');
+    }
+  }, [isLocating, pushLocationToast, stopTrackingUser]);
+
+  const handleLocateButtonClick = useCallback(() => {
+    if (isTrackingUser) {
+      stopTrackingUser();
+      pushLocationToast('Pelacakan GPS dimatikan.', 'info');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      pushLocationToast('Peramban ini tidak mendukung GPS.', 'error');
+      return;
+    }
+    if (locationPermissionState === 'denied') {
+      pushLocationToast('Izin GPS masih diblokir oleh browser.', 'error');
+      return;
+    }
+    if (locationPermissionState === 'granted') {
+      startTrackingUser();
+      return;
+    }
+    setIsLocationModalOpen(true);
+    setLocationModalError(null);
+  }, [isTrackingUser, locationPermissionState, pushLocationToast, startTrackingUser, stopTrackingUser]);
+
+  const handleLocationPermissionConfirm = useCallback(() => {
+    if (locationPermissionState === 'denied') {
+      pushLocationToast('Izin GPS sedang diblokir. Buka pengaturan browser Anda.', 'error');
+      return;
+    }
+    startTrackingUser();
+  }, [locationPermissionState, pushLocationToast, startTrackingUser]);
+
+  const handleLocationPermissionClose = useCallback(() => {
+    setIsLocationModalOpen(false);
+    setLocationModalError(null);
+  }, []);
+
+  useEffect(() => {
+    if (locationPermissionState === 'granted') {
+      setIsLocationModalOpen(false);
+      setLocationModalError(null);
+    }
+  }, [locationPermissionState]);
+
+  useEffect(() => {
+    if (viewMode !== 'map') {
+      stopTrackingUser();
+    }
+  }, [viewMode, stopTrackingUser]);
+
+  useEffect(() => {
+    return () => {
+      stopTrackingUser();
+      if (locationToastTimerRef.current) {
+        clearTimeout(locationToastTimerRef.current);
+      }
+    };
+  }, [stopTrackingUser]);
 
   const persistRegions = async (nextRegions, { successMessage } = {}) => {
     setRegions(nextRegions);
@@ -1008,6 +1267,13 @@ const App = () => {
       </div>
       <div className="absolute top-3 right-3 z-[450] flex gap-2">
         <button
+          onClick={handleLocateButtonClick}
+          className={`p-2 rounded-full border transition ${isTrackingUser ? 'bg-cyan-600 border-cyan-400 text-white shadow-lg shadow-cyan-500/30' : 'bg-slate-900/80 border-slate-700 text-slate-200 hover:text-cyan-300'}`}
+          aria-label={isTrackingUser ? 'Matikan pelacakan GPS' : 'Tampilkan lokasi saya'}
+        >
+          {isLocating ? <Activity size={16} className="animate-spin" /> : <Navigation size={16} />}
+        </button>
+        <button
           onClick={openSearchModal}
           className="p-2 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-cyan-300 transition"
           aria-label="Cari Lokasi"
@@ -1155,6 +1421,54 @@ const App = () => {
             </form>
           )}
         </div>
+      </div>
+    );
+  };
+
+  const renderLocationPermissionModal = () => {
+    if (!isLocationModalOpen) return null;
+    return (
+      <div className="fixed inset-0 z-[700] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm px-4">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 relative shadow-2xl text-slate-100">
+          <button onClick={handleLocationPermissionClose} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+            <X size={18} />
+          </button>
+          <div className="flex items-center gap-2 text-cyan-400 text-xs font-semibold tracking-[0.3em] uppercase mb-3">
+            <Navigation size={16} /> GPS ACCESS
+          </div>
+          <h3 className="text-lg font-bold mb-1">Bagikan Posisi Anda</h3>
+          <p className="text-sm text-slate-300 mb-4">
+            Kami membutuhkan izin lokasi untuk menampilkan penanda segitiga biru yang menunjuk posisi perangkat Anda secara presisi di atas peta ini. Data lokasi hanya dipakai secara lokal dan tidak dikirim ke server.
+          </p>
+          {locationModalError && <div className="text-xs text-red-400 mb-4">{locationModalError}</div>}
+          <div className="flex gap-3 text-sm font-semibold">
+            <button onClick={handleLocationPermissionClose} className="flex-1 py-2 rounded-lg border border-slate-700 text-slate-300">
+              Nanti Saja
+            </button>
+            <button
+              onClick={handleLocationPermissionConfirm}
+              disabled={isLocating}
+              className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 ${isLocating ? 'bg-cyan-800/60 cursor-not-allowed text-white/70' : 'bg-cyan-600 hover:bg-cyan-500 text-white'}`}
+            >
+              {isLocating ? <Activity size={14} className="animate-spin" /> : <Navigation size={14} />}
+              {isLocating ? 'Mengambil Lokasi...' : 'Izinkan GPS'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderLocationToast = () => {
+    if (!locationToast) return null;
+    const tone = locationToast.type === 'error'
+      ? 'border-red-500/60 text-red-200'
+      : locationToast.type === 'success'
+      ? 'border-cyan-400/70 text-cyan-100'
+      : 'border-slate-600 text-slate-200';
+    return (
+      <div className={`fixed bottom-5 left-5 z-[600] bg-slate-950/90 px-4 py-2 rounded-2xl text-[11px] font-mono tracking-wide border ${tone} shadow-2xl shadow-black/40`}>
+        {locationToast.message}
       </div>
     );
   };
@@ -1420,8 +1734,10 @@ const App = () => {
         {renderSidebarModal()}
       </main>
       {renderMapAddOverlay()}
+      {renderLocationPermissionModal()}
       {renderSearchModal()}
       {renderPasswordModal()}
+      {renderLocationToast()}
       <style>{` .custom-scrollbar::-webkit-scrollbar { width: 4px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; rounded: 4px; } .leaflet-popup-content-wrapper { background: #0f172a; color: #fff; } `}</style>
     </div>
   );
