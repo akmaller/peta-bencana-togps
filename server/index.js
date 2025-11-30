@@ -11,7 +11,7 @@ const ROUTE_DATA_PATH = path.join(ROOT_DIR, 'src', 'data', 'routes.csv');
 const DIST_PATH = path.join(ROOT_DIR, 'dist');
 
 const CSV_HEADERS = ['id', 'name', 'lat', 'lng', 'disasterType', 'victimsText', 'status', 'severity', 'description', 'lastUpdate', 'source'];
-const ROUTE_CSV_HEADERS = ['id', 'name', 'color', 'coordinates', 'distanceKm', 'createdAt'];
+const ROUTE_CSV_HEADERS = ['id', 'name', 'color', 'coordinates', 'distanceKm', 'durationMinutes', 'createdAt'];
 
 const escapeCSVValue = (value) => {
   if (value === null || value === undefined) return '';

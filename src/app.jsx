@@ -12,6 +12,7 @@ const SUMATRA_PROVINCE_IDS = ['11', '12', '13', '14', '15', '16', '17', '18', '1
 const PROVINCE_API_URL = 'https://ibnux.github.io/data-indonesia/provinsi.json';
 const REGENCY_API_URL = (provinceId) => `https://ibnux.github.io/data-indonesia/kabupaten/${provinceId}.json`;
 const ROUTE_COLORS = ['#34d399', '#60a5fa', '#f472b6', '#f97316', '#a855f7', '#facc15', '#2dd4bf', '#fb7185'];
+const AVERAGE_CAR_SPEED_KMH = 60;
 const ROUTE_LONG_PRESS_MS = 800;
 const getRoutePaletteColor = (index = 0) => ROUTE_COLORS[index % ROUTE_COLORS.length];
 
@@ -110,12 +111,17 @@ const parseRoutesCSV = (csvText = '') => {
     headers.forEach((header, index) => {
       record[header] = values[index] ?? '';
     });
+    const distanceKm = record.distanceKm ? parseFloat(record.distanceKm) : 0;
+    const durationMinutes = Number.isFinite(distanceKm) && distanceKm > 0
+      ? (distanceKm / AVERAGE_CAR_SPEED_KMH) * 60
+      : 0;
     return {
       id: record.id || `route-${Date.now()}`,
       name: record.name || 'Jalur',
       color: record.color || null,
       coordinates: parseRouteCoordinates(record.coordinates),
-      distanceKm: record.distanceKm ? parseFloat(record.distanceKm) : 0,
+      distanceKm,
+      durationMinutes,
       createdAt: record.createdAt || ''
     };
   }).filter((route) => Array.isArray(route.coordinates) && route.coordinates.length >= 2);
@@ -241,6 +247,7 @@ const App = () => {
   const [routeDraftColor, setRouteDraftColor] = useState(null);
   const [routeDraftName, setRouteDraftName] = useState('');
   const [routeDraftDistance, setRouteDraftDistance] = useState(0);
+  const [routeDraftDuration, setRouteDraftDuration] = useState(0);
   const [routeDraftError, setRouteDraftError] = useState(null);
   const [isRoutingSegment, setIsRoutingSegment] = useState(false);
   const [isSavingRoute, setIsSavingRoute] = useState(false);
@@ -319,6 +326,14 @@ const App = () => {
   }, [routeDraftColor]);
 
   useEffect(() => {
+    if (!Number.isFinite(routeDraftDistance) || routeDraftDistance <= 0) {
+      setRouteDraftDuration(0);
+    } else {
+      setRouteDraftDuration((routeDraftDistance / AVERAGE_CAR_SPEED_KMH) * 60);
+    }
+  }, [routeDraftDistance]);
+
+  useEffect(() => {
     if (isCreatingRoute) {
       setIsRoutePanelCollapsed(true);
     } else {
@@ -330,6 +345,7 @@ const App = () => {
     setRouteDraftPoints([]);
     setRouteDraftSegments([]);
     setRouteDraftDistance(0);
+    setRouteDraftDuration(0);
     setRouteDraftError(null);
     setRouteDraftName('');
     setRouteDraftColor(null);
@@ -1209,6 +1225,17 @@ const App = () => {
     return getRoutePaletteColor(index);
   };
 
+  const formatDurationMinutes = (minutes) => {
+    if (!Number.isFinite(minutes) || minutes <= 0) return 'N/A';
+    const totalMinutes = Math.round(minutes);
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    if (hours > 0) {
+      return `${hours} jam ${mins} mnt`;
+    }
+    return `${mins} menit`;
+  };
+
   const showFeedback = (message, duration = 6000) => {
     setSyncFeedback(message);
     if (feedbackTimerRef.current) {
@@ -1315,12 +1342,14 @@ const App = () => {
       return;
     }
     const totalDistance = Number.isFinite(routeDraftDistance) ? Number(routeDraftDistance.toFixed(3)) : 0;
+    const totalDuration = totalDistance > 0 ? Number(((totalDistance / AVERAGE_CAR_SPEED_KMH) * 60).toFixed(2)) : 0;
     const newRoute = {
       id: `route-${Date.now()}`,
       name: routeDraftName?.trim() || `Jalur ${routesRef.current.length + 1}`,
       color: routeDraftColor || getRoutePaletteColor(routesRef.current.length),
       coordinates: mergedCoords,
       distanceKm: totalDistance,
+      durationMinutes: totalDuration,
       createdAt: new Date().toISOString()
     };
     const nextRoutes = [...routesRef.current, newRoute];
@@ -2007,6 +2036,9 @@ const App = () => {
     if (!isCreatingRoute) return null;
     const pointCount = routeDraftPoints.length;
     const distanceLabel = Number.isFinite(routeDraftDistance) ? `${routeDraftDistance.toFixed(2)} km` : '0 km';
+    const durationLabel = Number.isFinite(routeDraftDuration) && routeDraftDuration > 0
+      ? formatDurationMinutes(routeDraftDuration)
+      : 'Estimasi -';
     const canFinishRoute = routeDraftSegments.length > 0 && pointCount >= 2 && !isRoutingSegment && !isSavingRoute;
     const panelWidthStyle = { width: 'min(22rem, calc(100vw - 2rem))' };
     const anchorClass = isRoutePanelCollapsed ? 'bottom-4 right-4' : 'top-20 right-4';
@@ -2021,6 +2053,7 @@ const App = () => {
             <div>
               <p className="text-[10px] uppercase tracking-[0.35em] text-pink-300">Mode Jalur</p>
               <p className="text-sm font-semibold text-white">{pointCount} titik • {distanceLabel}</p>
+              <p className="text-xs text-slate-400 mt-0.5">Estimasi mobil: {durationLabel}</p>
             </div>
             <div className="flex items-center gap-2 text-slate-300">
               <span
@@ -2059,6 +2092,9 @@ const App = () => {
               {pointCount} titik
             </span>
             <span className="font-mono text-[11px] text-cyan-300">{distanceLabel}</span>
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">
+            Estimasi perjalanan mobil: <span className="text-white font-semibold">{durationLabel}</span>
           </div>
           <p className="text-[11px] text-slate-400 mt-3">
             Klik berturut di jalur jalan. Sistem otomatis menarik garis mengikuti akses terdekat.
@@ -2134,6 +2170,10 @@ const App = () => {
             <div className="flex items-center justify-between mt-2 text-xs">
               <span>Panjang jalur</span>
               <span className="font-mono text-cyan-300">{(routeDeleteIntent.distanceKm ?? 0).toFixed(2)} km</span>
+            </div>
+            <div className="flex items-center justify-between mt-2 text-xs">
+              <span>Estimasi waktu (mobil)</span>
+              <span className="font-mono text-emerald-300">{formatDurationMinutes(routeDeleteIntent.durationMinutes)}</span>
             </div>
             <div className="mt-2 text-[11px] text-slate-400">
               Jalur ini dibuat {routeDeleteIntent.createdAt ? new Date(routeDeleteIntent.createdAt).toLocaleString('id-ID') : 'sebelumnya'}.
