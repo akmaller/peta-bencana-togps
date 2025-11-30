@@ -15,3 +15,6 @@ pnpm-debug.log*
 
 # Editor/OS cruft
 .DS_Store
+
+# Database
+src/data/*

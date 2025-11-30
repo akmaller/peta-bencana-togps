@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { AlertTriangle, Droplets, Flame, Users, Activity, MapPin, Info, Wind, Search, Newspaper, Layers, Lock, LogOut, Save, Trash2, Plus, Edit3, X, Eye, Navigation } from 'lucide-react';
+import { AlertTriangle, Droplets, Flame, Users, Activity, MapPin, Info, Wind, Search, Newspaper, Layers, Lock, LogOut, Save, Trash2, Plus, Edit3, X, Eye, Navigation, GitBranch, ChevronDown, ChevronUp } from 'lucide-react';
 import disastersCsv from './data/disasters.csv?raw';
+import routesCsv from './data/routes.csv?raw';
 
 const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const DISASTERS_API_URL = `${API_BASE_URL}/api/disasters`;
+const ROUTES_API_URL = `${API_BASE_URL}/api/routes`;
 const SERVER_SYNC_INTERVAL = 30000; // 30s
+const ROUTE_SYNC_INTERVAL = 45000;
 const SUMATRA_PROVINCE_IDS = ['11', '12', '13', '14', '15', '16', '17', '18', '19', '21'];
 const PROVINCE_API_URL = 'https://ibnux.github.io/data-indonesia/provinsi.json';
 const REGENCY_API_URL = (provinceId) => `https://ibnux.github.io/data-indonesia/kabupaten/${provinceId}.json`;
+const ROUTE_COLORS = ['#34d399', '#60a5fa', '#f472b6', '#f97316', '#a855f7', '#facc15', '#2dd4bf', '#fb7185'];
+const ROUTE_LONG_PRESS_MS = 800;
+const getRoutePaletteColor = (index = 0) => ROUTE_COLORS[index % ROUTE_COLORS.length];
 
 const formatLocationName = (raw = '') => {
   const cleaned = raw.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -21,26 +27,38 @@ const formatLocationName = (raw = '') => {
 
 const normalizeLocationKey = (name = '') => name.replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
 
-const parseCSV = (csvText) => {
-  const lines = csvText.trim().split('\n');
-  return lines.slice(1).map(line => {
-    const values = [];
-    let currentVal = '';
-    let inQuotes = false;
-
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        values.push(currentVal);
-        currentVal = '';
+const parseCSVRow = (line = '') => {
+  const values = [];
+  let currentVal = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      const nextChar = line[i + 1];
+      if (inQuotes && nextChar === '"') {
+        currentVal += '"';
+        i++;
       } else {
-        currentVal += char;
+        inQuotes = !inQuotes;
       }
+    } else if (char === ',' && !inQuotes) {
+      values.push(currentVal);
+      currentVal = '';
+    } else {
+      currentVal += char;
     }
-    values.push(currentVal);
+  }
+  values.push(currentVal);
+  return values;
+};
 
+const parseCSV = (csvText = '') => {
+  const trimmed = csvText.trim();
+  if (!trimmed) return [];
+  const lines = trimmed.split('\n').filter(Boolean);
+  if (lines.length <= 1) return [];
+  return lines.slice(1).map((line) => {
+    const values = parseCSVRow(line);
     return {
       id: values[0],
       name: values[1],
@@ -57,7 +75,54 @@ const parseCSV = (csvText) => {
   });
 };
 
+const parseRouteCoordinates = (raw = '[]') => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((pair) => {
+        if (Array.isArray(pair) && pair.length >= 2) {
+          const lat = parseFloat(pair[0]);
+          const lng = parseFloat(pair[1]);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            return [lat, lng];
+          }
+        }
+        return null;
+      })
+      .filter(Boolean);
+  } catch (error) {
+    console.error('Failed to parse route coordinates:', error);
+    return [];
+  }
+};
+
+const parseRoutesCSV = (csvText = '') => {
+  const trimmed = csvText.trim();
+  if (!trimmed) return [];
+  const lines = trimmed.split('\n').filter(Boolean);
+  if (lines.length <= 1) return [];
+  const headers = parseCSVRow(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseCSVRow(line);
+    const record = {};
+    headers.forEach((header, index) => {
+      record[header] = values[index] ?? '';
+    });
+    return {
+      id: record.id || `route-${Date.now()}`,
+      name: record.name || 'Jalur',
+      color: record.color || null,
+      coordinates: parseRouteCoordinates(record.coordinates),
+      distanceKm: record.distanceKm ? parseFloat(record.distanceKm) : 0,
+      createdAt: record.createdAt || ''
+    };
+  }).filter((route) => Array.isArray(route.coordinates) && route.coordinates.length >= 2);
+};
+
 const getFallbackRegions = () => parseCSV(disastersCsv);
+const getFallbackRoutes = () => parseRoutesCSV(routesCsv);
 
 const SUMATRA_LOCATIONS = (() => {
   const parsed = getFallbackRegions();
@@ -78,6 +143,14 @@ const fetchServerRegions = async () => {
   if (!response.ok) throw new Error('Failed to fetch server disasters data');
   const csvPayload = await response.text();
   return parseCSV(csvPayload);
+};
+
+const fetchServerRoutes = async () => {
+  if (!ROUTES_API_URL || typeof fetch === 'undefined') return null;
+  const response = await fetch(ROUTES_API_URL, { cache: 'no-store' });
+  if (!response.ok) throw new Error('Failed to fetch server routes data');
+  const csvPayload = await response.text();
+  return parseRoutesCSV(csvPayload);
 };
 
 const fetchSumatraLocationOptions = async () => {
@@ -112,6 +185,7 @@ const TARGET_HASH = "9651674db05263e2f6176a7f4302a6317e5549694d55c69cdc7a6c608ba
 const App = () => {
   // --- STATE ---
   const [regions, setRegions] = useState([]);
+  const [routes, setRoutes] = useState([]);
   const [viewMode, setViewMode] = useState('map'); // 'map', 'login', 'admin'
   const [activeRegion, setActiveRegion] = useState(null);
   const [isLeafletReady, setIsLeafletReady] = useState(false);
@@ -141,7 +215,7 @@ const App = () => {
   const [searchPointer, setSearchPointer] = useState(null);
   const [sidebarPosition, setSidebarPosition] = useState(null);
   const [sidebarLocked, setSidebarLocked] = useState(false);
-  const [passwordModal, setPasswordModal] = useState({ open: false, context: null });
+  const [passwordModal, setPasswordModal] = useState({ open: false, context: null, payload: null });
   const [passwordInputValue, setPasswordInputValue] = useState('');
   const [passwordModalError, setPasswordModalError] = useState(null);
   // User GPS State
@@ -160,6 +234,22 @@ const App = () => {
   // Admin Editing State
   const [editingId, setEditingId] = useState(null); 
   const [editFormData, setEditFormData] = useState({});
+  const [isPersistingRoutes, setIsPersistingRoutes] = useState(false);
+  const [isCreatingRoute, setIsCreatingRoute] = useState(false);
+  const [routeDraftPoints, setRouteDraftPoints] = useState([]);
+  const [routeDraftSegments, setRouteDraftSegments] = useState([]);
+  const [routeDraftColor, setRouteDraftColor] = useState(null);
+  const [routeDraftName, setRouteDraftName] = useState('');
+  const [routeDraftDistance, setRouteDraftDistance] = useState(0);
+  const [routeDraftError, setRouteDraftError] = useState(null);
+  const [isRoutingSegment, setIsRoutingSegment] = useState(false);
+  const [isSavingRoute, setIsSavingRoute] = useState(false);
+  const [isRoutePanelCollapsed, setIsRoutePanelCollapsed] = useState(false);
+  const [routeAuthorized, setRouteAuthorized] = useState(false);
+  const [routeDeleteIntent, setRouteDeleteIntent] = useState(null);
+  const [routeDeletePassword, setRouteDeletePassword] = useState('');
+  const [routeDeleteError, setRouteDeleteError] = useState(null);
+  const [isDeletingRoute, setIsDeletingRoute] = useState(false);
 
   // Refs
   const mapContainerRef = useRef(null);
@@ -167,6 +257,7 @@ const App = () => {
   const markersRef = useRef({});
   const feedbackTimerRef = useRef(null);
   const regionsRef = useRef(regions);
+  const routesRef = useRef(routes);
   const searchDebounceRef = useRef(null);
   const searchAbortRef = useRef(null);
   const sidebarDragRef = useRef({ active: false, offsetX: 0, offsetY: 0 });
@@ -175,6 +266,18 @@ const App = () => {
   const userAccuracyRef = useRef(null);
   const hasCenteredOnUserRef = useRef(false);
   const locationToastTimerRef = useRef(null);
+  const routeLayerGroupRef = useRef(null);
+  const routeDraftLayerRef = useRef(null);
+  const routePointsRef = useRef(routeDraftPoints);
+  const routeSegmentsRef = useRef(routeDraftSegments);
+  const routeColorRef = useRef(routeDraftColor);
+  const routeHoldTimerRef = useRef(null);
+  const cancelRouteHoldTimer = useCallback(() => {
+    if (routeHoldTimerRef.current) {
+      clearTimeout(routeHoldTimerRef.current);
+      routeHoldTimerRef.current = null;
+    }
+  }, []);
 
   const computeSidebarPosition = useCallback((region, force = false) => {
     if (!region || !mapInstanceRef.current || !mapContainerRef.current) return;
@@ -198,6 +301,118 @@ const App = () => {
   useEffect(() => {
     regionsRef.current = regions;
   }, [regions]);
+
+  useEffect(() => {
+    routesRef.current = routes;
+  }, [routes]);
+
+  useEffect(() => {
+    routePointsRef.current = routeDraftPoints;
+  }, [routeDraftPoints]);
+
+  useEffect(() => {
+    routeSegmentsRef.current = routeDraftSegments;
+  }, [routeDraftSegments]);
+
+  useEffect(() => {
+    routeColorRef.current = routeDraftColor;
+  }, [routeDraftColor]);
+
+  useEffect(() => {
+    if (isCreatingRoute) {
+      setIsRoutePanelCollapsed(true);
+    } else {
+      setIsRoutePanelCollapsed(false);
+    }
+  }, [isCreatingRoute]);
+
+  const resetRouteDraftState = () => {
+    setRouteDraftPoints([]);
+    setRouteDraftSegments([]);
+    setRouteDraftDistance(0);
+    setRouteDraftError(null);
+    setRouteDraftName('');
+    setRouteDraftColor(null);
+    routeColorRef.current = null;
+    setIsRoutingSegment(false);
+    setIsSavingRoute(false);
+  };
+
+  const startRouteCreation = () => {
+    resetRouteDraftState();
+    const color = getRoutePaletteColor(routesRef.current.length);
+    routeColorRef.current = color;
+    setRouteDraftColor(color);
+    setRouteDraftName(`Jalur ${routesRef.current.length + 1}`);
+    setIsCreatingRoute(true);
+    setActiveRegion(null);
+    setSidebarPosition(null);
+    closeMapForm();
+    if (isEditingPosition) {
+      setIsEditingPosition(false);
+      setPositionEditCoords(null);
+    }
+  };
+
+  const cancelRouteCreation = () => {
+    resetRouteDraftState();
+    setIsCreatingRoute(false);
+  };
+
+  const handleRouteModeToggle = () => {
+    if (isCreatingRoute) {
+      cancelRouteCreation();
+    } else {
+      if (!routeAuthorized) {
+        openPasswordModal('route-mode', { action: 'start-route' });
+        return;
+      }
+      startRouteCreation();
+    }
+  };
+
+  const handleRouteNameChange = (event) => {
+    setRouteDraftName(event.target.value);
+  };
+
+  const closeRouteDeleteModal = () => {
+    setRouteDeleteIntent(null);
+    setRouteDeletePassword('');
+    setRouteDeleteError(null);
+    setIsDeletingRoute(false);
+  };
+
+  const handleRouteDeleteSubmit = async (event) => {
+    event.preventDefault();
+    if (!routeDeleteIntent) return;
+    setRouteDeleteError(null);
+    setIsDeletingRoute(true);
+    try {
+      const hash = await hashPassword(routeDeletePassword);
+      if (hash !== TARGET_HASH) {
+        setRouteDeleteError('Password salah.');
+        setIsDeletingRoute(false);
+        return;
+      }
+      const routeId = routeDeleteIntent.id;
+      const currentRoutes = routesRef.current || [];
+      const nextRoutes = currentRoutes.filter(route => route.id !== routeId);
+      if (nextRoutes.length === currentRoutes.length) {
+        setRouteDeleteError('Jalur tidak ditemukan.');
+        setIsDeletingRoute(false);
+        return;
+      }
+      const success = await persistRoutes(nextRoutes, { successMessage: `Jalur "${routeDeleteIntent.name}" dihapus.` });
+      if (success) {
+        closeRouteDeleteModal();
+      }
+    } catch (error) {
+      console.error('Failed to delete route:', error);
+      setRouteDeleteError('Gagal menghapus jalur.');
+    } finally {
+      setIsDeletingRoute(false);
+    }
+  };
 
   useEffect(() => {
     if (!activeRegion) {
@@ -283,8 +498,29 @@ const App = () => {
        if(mapInstanceRef.current) {
          mapInstanceRef.current.remove();
          mapInstanceRef.current = null;
+         routeLayerGroupRef.current = null;
+         routeDraftLayerRef.current = null;
        }
     }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    setRoutes(getFallbackRoutes());
+    const loadRoutes = async () => {
+      try {
+        const parsedRoutes = await fetchServerRoutes();
+        if (isMounted && Array.isArray(parsedRoutes)) {
+          setRoutes(parsedRoutes);
+        }
+      } catch (error) {
+        console.error('Failed to load routes data:', error);
+      }
+    };
+    loadRoutes();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -370,6 +606,40 @@ const App = () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [isPersistingRegions]);
+
+  useEffect(() => {
+    if (!ROUTES_API_URL || typeof fetch === 'undefined') return undefined;
+    let isMounted = true;
+    let timeoutId;
+
+    const syncRoutesFromServer = async () => {
+      try {
+        if (!isPersistingRoutes) {
+          const latestRoutes = await fetchServerRoutes();
+          if (isMounted && Array.isArray(latestRoutes)) {
+            const currentString = JSON.stringify(routesRef.current);
+            const latestString = JSON.stringify(latestRoutes);
+            if (currentString !== latestString) {
+              setRoutes(latestRoutes);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Background route sync failed:', error);
+      } finally {
+        if (isMounted) {
+          timeoutId = setTimeout(syncRoutesFromServer, ROUTE_SYNC_INTERVAL);
+        }
+      }
+    };
+
+    syncRoutesFromServer();
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isPersistingRoutes]);
 
   useEffect(() => {
     if (!isSearchModalOpen) {
@@ -478,6 +748,8 @@ const App = () => {
         mapInstanceRef.current = null;
         userMarkerRef.current = null;
         userAccuracyRef.current = null;
+        routeLayerGroupRef.current = null;
+        routeDraftLayerRef.current = null;
     }
 
     try {
@@ -500,13 +772,97 @@ const App = () => {
 
         mapInstanceRef.current = map;
         mapInstanceRef.current.__contextHandler = handleContextMenu;
+        routeLayerGroupRef.current = window.L.layerGroup().addTo(map);
+        routeDraftLayerRef.current = window.L.layerGroup().addTo(map);
         addMarkersToMap(map);
+        refreshSavedRoutes();
+        refreshRouteDraftLayers();
         
     } catch (err) {
         console.error("Map Init Error:", err);
     }
 
   }, [isLeafletReady, viewMode]);
+
+  const handleRouteLongPress = useCallback((route) => {
+    if (!route) return;
+    setRouteDeleteIntent(route);
+    setRouteDeletePassword('');
+    setRouteDeleteError(null);
+  }, []);
+
+  const refreshSavedRoutes = useCallback((data) => {
+    if (!routeLayerGroupRef.current || !window.L) return;
+    const group = routeLayerGroupRef.current;
+    group.clearLayers();
+    const list = Array.isArray(data) ? data : routesRef.current;
+    if (!Array.isArray(list)) return;
+    list.forEach((route, index) => {
+      const coords = Array.isArray(route?.coordinates) ? route.coordinates : [];
+      if (coords.length < 2) return;
+      const color = route?.color || getRoutePaletteColor(index);
+      const polyline = window.L.polyline(coords, {
+        color,
+        weight: 5,
+        opacity: 0.9,
+        lineJoin: 'round',
+        lineCap: 'round'
+      }).addTo(group);
+      const startHold = () => {
+        cancelRouteHoldTimer();
+        routeHoldTimerRef.current = setTimeout(() => {
+          cancelRouteHoldTimer();
+          handleRouteLongPress(route);
+        }, ROUTE_LONG_PRESS_MS);
+      };
+      const endHold = () => {
+        cancelRouteHoldTimer();
+      };
+      polyline.on('mousedown', startHold);
+      polyline.on('touchstart', startHold);
+      polyline.on('mouseup', endHold);
+      polyline.on('mouseleave', endHold);
+      polyline.on('touchend', endHold);
+      polyline.on('touchcancel', endHold);
+    });
+  }, [cancelRouteHoldTimer, handleRouteLongPress]);
+
+  const refreshRouteDraftLayers = useCallback(() => {
+    if (!routeDraftLayerRef.current || !window.L) return;
+    const group = routeDraftLayerRef.current;
+    group.clearLayers();
+    const segments = routeSegmentsRef.current || [];
+    const points = routePointsRef.current || [];
+    const color = routeColorRef.current || getRoutePaletteColor(routesRef.current.length);
+    segments.forEach((segment) => {
+      if (!Array.isArray(segment) || segment.length < 2) return;
+      window.L.polyline(segment, {
+        color,
+        weight: 4,
+        opacity: 0.8,
+        dashArray: '8 6',
+        lineCap: 'round'
+      }).addTo(group);
+    });
+    points.forEach((point, idx) => {
+      if (!Array.isArray(point) || point.length < 2) return;
+      window.L.circleMarker(point, {
+        radius: idx === 0 ? 5 : 4,
+        color,
+        weight: idx === 0 ? 3 : 2,
+        fillColor: '#0f172a',
+        fillOpacity: 1
+      }).addTo(group);
+    });
+  }, []);
+
+  useEffect(() => {
+    refreshSavedRoutes(routes);
+  }, [routes, refreshSavedRoutes]);
+
+  useEffect(() => {
+    refreshRouteDraftLayers();
+  }, [routeDraftSegments, routeDraftPoints, routeDraftColor, refreshRouteDraftLayers]);
 
   const addMarkersToMap = (map) => {
      markersRef.current = {};
@@ -848,6 +1204,11 @@ const App = () => {
     return <AlertTriangle size={24} />;
   };
 
+  const resolveRouteColor = (route, index = 0) => {
+    if (route?.color) return route.color;
+    return getRoutePaletteColor(index);
+  };
+
   const showFeedback = (message, duration = 6000) => {
     setSyncFeedback(message);
     if (feedbackTimerRef.current) {
@@ -866,6 +1227,109 @@ const App = () => {
     }
     locationToastTimerRef.current = setTimeout(() => setLocationToast(null), duration);
   }, []);
+
+  const fetchRouteSegment = useCallback(async (start, end) => {
+    if (!start || !end) return;
+    setIsRoutingSegment(true);
+    try {
+      const startLat = start[0];
+      const startLng = start[1];
+      const endLat = end[0];
+      const endLng = end[1];
+      const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('OSRM request failed');
+      const data = await response.json();
+      const [routeCandidate] = data.routes || [];
+      const coords = routeCandidate?.geometry?.coordinates || [];
+      if (!coords.length) {
+        throw new Error('Empty geometry');
+      }
+      const latLngSegments = coords.map(([lng, lat]) => [lat, lng]);
+      setRouteDraftSegments((prev) => [...prev, latLngSegments]);
+      const distanceKm = Number(routeCandidate.distance || 0) / 1000;
+      if (Number.isFinite(distanceKm)) {
+        setRouteDraftDistance((prev) => prev + distanceKm);
+      }
+      setRouteDraftError(null);
+    } catch (error) {
+      console.error('Route segment error:', error);
+      setRouteDraftError('Gagal menemukan jalur jalan untuk titik tersebut. Pilih titik lain.');
+      setRouteDraftPoints((prev) => prev.slice(0, -1));
+    } finally {
+      setIsRoutingSegment(false);
+    }
+  }, []);
+
+  const handleRouteMapClick = useCallback((event) => {
+    if (!isCreatingRoute) return;
+    if (isRoutingSegment) {
+      setRouteDraftError('Sedang menghitung jalur sebelumnya, harap tunggu.');
+      return;
+    }
+    const { lat, lng } = event?.latlng || {};
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    setRouteDraftError(null);
+    const newPoint = [lat, lng];
+    const lastPoint = routePointsRef.current[routePointsRef.current.length - 1];
+    setRouteDraftPoints((prev) => [...prev, newPoint]);
+    if (lastPoint) {
+      fetchRouteSegment(lastPoint, newPoint);
+    }
+  }, [fetchRouteSegment, isCreatingRoute, isRoutingSegment]);
+
+  useEffect(() => {
+    if (!isCreatingRoute) return undefined;
+    const map = mapInstanceRef.current;
+    if (!map || !window.L) return undefined;
+    const clickHandler = (event) => handleRouteMapClick(event);
+    map.on('click', clickHandler);
+    return () => {
+      map.off('click', clickHandler);
+    };
+  }, [isCreatingRoute, handleRouteMapClick]);
+
+  const handleFinishRoute = async () => {
+    if (!isCreatingRoute) return;
+    if (isRoutingSegment) {
+      setRouteDraftError('Sedang menghitung jalur, tunggu sebelum menyelesaikan.');
+      return;
+    }
+    if (routeDraftSegments.length === 0 || routeDraftPoints.length < 2) {
+      setRouteDraftError('Tambahkan minimal dua titik di peta untuk membentuk jalur.');
+      return;
+    }
+    setIsSavingRoute(true);
+    const mergedCoords = [];
+    routeDraftSegments.forEach((segment, segmentIndex) => {
+      if (!Array.isArray(segment)) return;
+      segment.forEach((coord, coordIndex) => {
+        if (!Array.isArray(coord) || coord.length < 2) return;
+        if (segmentIndex > 0 && coordIndex === 0) return;
+        mergedCoords.push(coord);
+      });
+    });
+    if (!mergedCoords.length) {
+      setRouteDraftError('Jalur belum terbentuk. Coba ulangi titik Anda.');
+      setIsSavingRoute(false);
+      return;
+    }
+    const totalDistance = Number.isFinite(routeDraftDistance) ? Number(routeDraftDistance.toFixed(3)) : 0;
+    const newRoute = {
+      id: `route-${Date.now()}`,
+      name: routeDraftName?.trim() || `Jalur ${routesRef.current.length + 1}`,
+      color: routeDraftColor || getRoutePaletteColor(routesRef.current.length),
+      coordinates: mergedCoords,
+      distanceKm: totalDistance,
+      createdAt: new Date().toISOString()
+    };
+    const nextRoutes = [...routesRef.current, newRoute];
+    const success = await persistRoutes(nextRoutes, { successMessage: 'Jalur baru berhasil disimpan.' });
+    setIsSavingRoute(false);
+    if (success) {
+      cancelRouteCreation();
+    }
+  };
 
   const resetMapFormState = () => {
     setMapFormData({ type: 'Akses Putus', name: '', description: '', victims: '', status: '', severity: 'medium' });
@@ -917,14 +1381,14 @@ const App = () => {
     setPositionEditCoords({ lat: activeRegion.lat, lng: activeRegion.lng });
   };
 
-  const openPasswordModal = (context) => {
-    setPasswordModal({ open: true, context });
+  const openPasswordModal = (context, payload = null) => {
+    setPasswordModal({ open: true, context, payload });
     setPasswordInputValue('');
     setPasswordModalError(null);
   };
 
   const closePasswordModal = () => {
-    setPasswordModal({ open: false, context: null });
+    setPasswordModal({ open: false, context: null, payload: null });
     setPasswordInputValue('');
     setPasswordModalError(null);
   };
@@ -941,6 +1405,16 @@ const App = () => {
       if (passwordModal.context === 'position-edit') {
         setPositionAuthorized(true);
         activatePositionEditing();
+        closePasswordModal();
+        return;
+      }
+      if (passwordModal.context === 'route-mode') {
+        setRouteAuthorized(true);
+        closePasswordModal();
+        if (passwordModal.payload?.action === 'start-route') {
+          startRouteCreation();
+        }
+        return;
       }
       closePasswordModal();
     } catch (error) {
@@ -1115,6 +1589,12 @@ const App = () => {
     };
   }, [stopTrackingUser]);
 
+  useEffect(() => {
+    return () => {
+      cancelRouteHoldTimer();
+    };
+  }, [cancelRouteHoldTimer]);
+
   const persistRegions = async (nextRegions, { successMessage } = {}) => {
     setRegions(nextRegions);
     if (typeof fetch === 'undefined') {
@@ -1145,6 +1625,39 @@ const App = () => {
       return false;
     } finally {
       setIsPersistingRegions(false);
+    }
+  };
+
+  const persistRoutes = async (nextRoutes, { successMessage } = {}) => {
+    setRoutes(nextRoutes);
+    if (typeof fetch === 'undefined') {
+      showFeedback('API server tidak tersedia di lingkungan ini.');
+      return false;
+    }
+    if (!ROUTES_API_URL) {
+      showFeedback('Endpoint API jalur belum dikonfigurasi.');
+      return false;
+    }
+    try {
+      setIsPersistingRoutes(true);
+      const response = await fetch(ROUTES_API_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: nextRoutes })
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save routes data');
+      }
+      if (successMessage) {
+        showFeedback(successMessage);
+      }
+      return true;
+    } catch (error) {
+      console.error('Failed to persist routes:', error);
+      showFeedback('Gagal menyimpan data jalur ke server.');
+      return false;
+    } finally {
+      setIsPersistingRoutes(false);
     }
   };
 
@@ -1255,7 +1768,12 @@ const App = () => {
 
   const renderMapSection = () => (
     <div className="relative w-full h-screen bg-slate-900">
-      <div id="map-container" ref={mapContainerRef} className="absolute inset-0 bg-slate-900">
+      <div
+        id="map-container"
+        ref={mapContainerRef}
+        className="absolute inset-0 bg-slate-900"
+        style={{ cursor: isCreatingRoute ? 'crosshair' : undefined }}
+      >
         {!isLeafletReady && (
           <div className="absolute inset-0 flex items-center justify-center text-slate-500 animate-pulse">
             Initializing Map System...
@@ -1265,6 +1783,11 @@ const App = () => {
       <div className="absolute top-3 left-3 z-[400] text-[10px] font-mono text-cyan-500/80 bg-slate-950/80 px-3 py-1.5 rounded-full border border-slate-800/70">
         LAT: {activeRegion?.lat?.toFixed(4) || '-'} | LNG: {activeRegion?.lng?.toFixed(4) || '-'}
       </div>
+      {isCreatingRoute && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[420] bg-slate-950/85 border border-pink-500/50 text-pink-100 px-4 py-1.5 rounded-full text-[11px] font-semibold shadow-lg shadow-pink-500/10">
+          Mode jalur aktif – klik jalan untuk menambah titik, tekan "Selesai" jika sudah.
+        </div>
+      )}
       <div className="absolute top-3 right-3 z-[450] flex gap-2">
         <button
           onClick={handleLocateButtonClick}
@@ -1279,6 +1802,13 @@ const App = () => {
           aria-label="Cari Lokasi"
         >
           <Search size={16} />
+        </button>
+        <button
+          onClick={handleRouteModeToggle}
+          className={`p-2 rounded-full border transition ${isCreatingRoute ? 'bg-pink-600/90 border-pink-400 text-white shadow-lg shadow-pink-500/30' : 'bg-slate-900/80 border-slate-700 text-slate-200 hover:text-pink-300'}`}
+          aria-label={isCreatingRoute ? 'Batalkan pembuatan jalur' : 'Buat jalur baru'}
+        >
+          <GitBranch size={16} />
         </button>
         <button
           onClick={() => setViewMode('login')}
@@ -1469,6 +1999,174 @@ const App = () => {
     return (
       <div className={`fixed bottom-5 left-5 z-[600] bg-slate-950/90 px-4 py-2 rounded-2xl text-[11px] font-mono tracking-wide border ${tone} shadow-2xl shadow-black/40`}>
         {locationToast.message}
+      </div>
+    );
+  };
+
+  const renderRouteBuilderPanel = () => {
+    if (!isCreatingRoute) return null;
+    const pointCount = routeDraftPoints.length;
+    const distanceLabel = Number.isFinite(routeDraftDistance) ? `${routeDraftDistance.toFixed(2)} km` : '0 km';
+    const canFinishRoute = routeDraftSegments.length > 0 && pointCount >= 2 && !isRoutingSegment && !isSavingRoute;
+    const panelWidthStyle = { width: 'min(22rem, calc(100vw - 2rem))' };
+    const anchorClass = isRoutePanelCollapsed ? 'bottom-4 right-4' : 'top-20 right-4';
+
+    if (isRoutePanelCollapsed) {
+      return (
+        <div className={`fixed ${anchorClass} z-[620]`} style={panelWidthStyle}>
+          <button
+            onClick={() => setIsRoutePanelCollapsed(false)}
+            className="w-full bg-slate-900/85 border border-slate-700 rounded-2xl px-4 py-3 flex items-center justify-between shadow-2xl shadow-black/40 text-left"
+          >
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.35em] text-pink-300">Mode Jalur</p>
+              <p className="text-sm font-semibold text-white">{pointCount} titik • {distanceLabel}</p>
+            </div>
+            <div className="flex items-center gap-2 text-slate-300">
+              <span
+                className="inline-flex h-3 w-6 rounded-full border border-slate-600"
+                style={{ backgroundColor: routeDraftColor || '#22d3ee' }}
+              />
+              <ChevronUp size={18} />
+            </div>
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className={`fixed ${anchorClass} z-[620]`} style={panelWidthStyle}>
+        <div className="bg-slate-900/95 border border-slate-700 rounded-2xl shadow-2xl px-5 py-4 backdrop-blur max-h-[calc(100vh-140px)] overflow-y-auto custom-scrollbar">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.35em] text-cyan-400">Mode Jalur</p>
+              <p className="text-base font-semibold text-white">Tetapkan rute akses</p>
+            </div>
+            <button
+              onClick={() => setIsRoutePanelCollapsed(true)}
+              className="text-slate-400 hover:text-white transition"
+              aria-label="Ciutkan panel jalur"
+            >
+              <ChevronDown size={18} />
+            </button>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+            <span className="flex items-center gap-2">
+              <span
+                className="inline-flex h-3 w-8 rounded-full border border-slate-600"
+                style={{ backgroundColor: routeDraftColor || '#22d3ee' }}
+              />
+              {pointCount} titik
+            </span>
+            <span className="font-mono text-[11px] text-cyan-300">{distanceLabel}</span>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-3">
+            Klik berturut di jalur jalan. Sistem otomatis menarik garis mengikuti akses terdekat.
+          </p>
+          <div className="mt-3 space-y-2">
+            <label className="text-[11px] uppercase font-semibold text-slate-400">Nama Jalur</label>
+            <input
+              value={routeDraftName}
+              onChange={handleRouteNameChange}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white"
+              placeholder="Contoh: Jalur Evakuasi Utama"
+            />
+          </div>
+          {isRoutingSegment && (
+            <div className="mt-3 text-xs text-amber-400 flex items-center gap-2">
+              <Activity size={14} className="animate-spin" />
+              Menghitung jalur jalan...
+            </div>
+          )}
+          {routeDraftError && (
+            <div className="mt-3 text-xs text-red-400">
+              {routeDraftError}
+            </div>
+          )}
+          <div className="mt-4 flex gap-2 flex-wrap">
+            <button
+              onClick={cancelRouteCreation}
+              className="flex-1 min-w-[120px] py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800"
+              disabled={isSavingRoute}
+            >
+              Batalkan
+            </button>
+            <button
+              onClick={handleFinishRoute}
+              disabled={!canFinishRoute}
+              className={`flex-1 min-w-[120px] py-2 rounded-lg text-white font-semibold flex items-center justify-center gap-2 ${canFinishRoute ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 hover:opacity-90' : 'bg-slate-800 text-slate-400 cursor-not-allowed'}`}
+            >
+              {isSavingRoute ? <Activity size={14} className="animate-spin" /> : <Save size={14} />}
+              {isSavingRoute ? 'Menyimpan...' : 'Selesai'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRouteDeleteModal = () => {
+    if (!routeDeleteIntent) return null;
+    const routeColor = routeDeleteIntent.color || getRoutePaletteColor(0);
+    return (
+      <div className="fixed inset-0 z-[710] flex items-center justify-center bg-slate-950/80 backdrop-blur px-4 py-6">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 relative shadow-2xl">
+          <button onClick={closeRouteDeleteModal} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+            <X size={18} />
+          </button>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-10 w-10 rounded-full border-2 border-slate-700 flex items-center justify-center">
+              <GitBranch size={20} className="text-cyan-400" />
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.35em] text-pink-300">Hapus Jalur</p>
+              <h3 className="text-lg font-semibold text-white">{routeDeleteIntent.name}</h3>
+            </div>
+          </div>
+          <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-3 text-sm text-slate-300 mb-4">
+            <div className="flex items-center justify-between">
+              <span>Warna</span>
+              <span className="inline-flex items-center gap-2 font-mono text-xs">
+                <span className="h-3 w-8 rounded-full border border-slate-600" style={{ backgroundColor: routeColor }} />
+                {routeColor}
+              </span>
+            </div>
+            <div className="flex items-center justify-between mt-2 text-xs">
+              <span>Panjang jalur</span>
+              <span className="font-mono text-cyan-300">{(routeDeleteIntent.distanceKm ?? 0).toFixed(2)} km</span>
+            </div>
+            <div className="mt-2 text-[11px] text-slate-400">
+              Jalur ini dibuat {routeDeleteIntent.createdAt ? new Date(routeDeleteIntent.createdAt).toLocaleString('id-ID') : 'sebelumnya'}.
+            </div>
+          </div>
+          <form onSubmit={handleRouteDeleteSubmit} className="space-y-3">
+            <div>
+              <label className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Password Admin</label>
+              <input
+                type="password"
+                value={routeDeletePassword}
+                onChange={(e) => setRouteDeletePassword(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mt-1"
+                placeholder="Masukkan password untuk menghapus"
+                autoFocus
+              />
+            </div>
+            {routeDeleteError && <p className="text-xs text-red-400">{routeDeleteError}</p>}
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={closeRouteDeleteModal} className="flex-1 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800">
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={isDeletingRoute}
+                className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold flex items-center justify-center gap-2 disabled:bg-slate-800"
+              >
+                {isDeletingRoute ? <Activity size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {isDeletingRoute ? 'Menghapus...' : 'Hapus Jalur'}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     );
   };
@@ -1733,6 +2431,8 @@ const App = () => {
         {renderMapSection()}
         {renderSidebarModal()}
       </main>
+      {renderRouteBuilderPanel()}
+      {renderRouteDeleteModal()}
       {renderMapAddOverlay()}
       {renderLocationPermissionModal()}
       {renderSearchModal()}
