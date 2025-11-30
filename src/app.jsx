@@ -279,6 +279,7 @@ const App = () => {
   const routeSegmentsRef = useRef(routeDraftSegments);
   const routeColorRef = useRef(routeDraftColor);
   const routeHoldTimerRef = useRef(null);
+  const customWheelHandlerRef = useRef(null);
   const cancelRouteHoldTimer = useCallback(() => {
     if (routeHoldTimerRef.current) {
       clearTimeout(routeHoldTimerRef.current);
@@ -332,6 +333,29 @@ const App = () => {
       setRouteDraftDuration((routeDraftDistance / AVERAGE_CAR_SPEED_KMH) * 60);
     }
   }, [routeDraftDistance]);
+
+  const configureMapZoomDynamics = useCallback((map) => {
+    if (!map) return;
+    const updateProfile = () => {
+      const zoom = map.getZoom();
+      if (zoom >= 15) {
+        map.options.zoomDelta = 0.18;
+        map.options.wheelPxPerZoomLevel = 220;
+      } else if (zoom >= 13) {
+        map.options.zoomDelta = 0.28;
+        map.options.wheelPxPerZoomLevel = 160;
+      } else if (zoom >= 10) {
+        map.options.zoomDelta = 0.4;
+        map.options.wheelPxPerZoomLevel = 110;
+      } else {
+        map.options.zoomDelta = 0.65;
+        map.options.wheelPxPerZoomLevel = 80;
+      }
+    };
+    updateProfile();
+    map.on('zoomend', updateProfile);
+    map.__zoomSensitivityHandler = updateProfile;
+  }, []);
 
   useEffect(() => {
     if (isCreatingRoute) {
@@ -512,11 +536,23 @@ const App = () => {
     return () => {
        isMounted = false;
        if(mapInstanceRef.current) {
-         mapInstanceRef.current.remove();
-         mapInstanceRef.current = null;
-         routeLayerGroupRef.current = null;
-         routeDraftLayerRef.current = null;
+         if (mapInstanceRef.current.__contextHandler) {
+           mapInstanceRef.current.off('contextmenu', mapInstanceRef.current.__contextHandler);
+           delete mapInstanceRef.current.__contextHandler;
+         }
+       if (mapInstanceRef.current.__zoomSensitivityHandler) {
+         mapInstanceRef.current.off('zoomend', mapInstanceRef.current.__zoomSensitivityHandler);
+         delete mapInstanceRef.current.__zoomSensitivityHandler;
        }
+        if (customWheelHandlerRef.current?.handler && customWheelHandlerRef.current?.container) {
+          customWheelHandlerRef.current.container.removeEventListener('wheel', customWheelHandlerRef.current.handler);
+          customWheelHandlerRef.current = null;
+        }
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        routeLayerGroupRef.current = null;
+        routeDraftLayerRef.current = null;
+      }
     }
   }, []);
 
@@ -760,6 +796,14 @@ const App = () => {
             mapInstanceRef.current.off('contextmenu', mapInstanceRef.current.__contextHandler);
             delete mapInstanceRef.current.__contextHandler;
         }
+        if (mapInstanceRef.current.__zoomSensitivityHandler) {
+            mapInstanceRef.current.off('zoomend', mapInstanceRef.current.__zoomSensitivityHandler);
+            delete mapInstanceRef.current.__zoomSensitivityHandler;
+        }
+        if (customWheelHandlerRef.current?.handler && customWheelHandlerRef.current?.container) {
+            customWheelHandlerRef.current.container.removeEventListener('wheel', customWheelHandlerRef.current.handler);
+            customWheelHandlerRef.current = null;
+        }
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
         userMarkerRef.current = null;
@@ -773,8 +817,46 @@ const App = () => {
             center: [2.0, 98.0], // Centered to show Aceh (Top), Sumut (Mid), Sumbar (Bottom)
             zoom: 6, 
             zoomControl: false,
-            attributionControl: true
+            attributionControl: true,
+            scrollWheelZoom: true,
+            touchZoom: 'center',
+            wheelDebounceTime: 8,
+            wheelPxPerZoomLevel: 100,
+            zoomSnap: 0,
+            zoomDelta: 0.35,
+            zoomAnimation: true,
+            zoomAnimationThreshold: 10,
+            easeLinearity: 0.35,
+            inertia: true,
+            inertiaDeceleration: 4000
         });
+        mapInstanceRef.current = map;
+
+        map.scrollWheelZoom.disable();
+        if (customWheelHandlerRef.current?.handler && customWheelHandlerRef.current?.container) {
+          customWheelHandlerRef.current.container.removeEventListener('wheel', customWheelHandlerRef.current.handler);
+          customWheelHandlerRef.current = null;
+        }
+        const wheelContainer = map.getContainer();
+        const handleWheelSmooth = (event) => {
+          event.preventDefault();
+          const mapRef = mapInstanceRef.current;
+          if (!mapRef) return;
+          const delta = event.deltaY;
+          const direction = delta > 0 ? 1 : -1;
+          const modifier = event.ctrlKey || event.metaKey ? 0.5 : 1;
+          const magnitude = Math.min(Math.abs(delta) / 180, 3) * modifier;
+          const currentZoom = mapRef.getZoom();
+          let baseStep;
+          if (currentZoom >= 15) baseStep = 0.2;
+          else if (currentZoom >= 13) baseStep = 0.32;
+          else if (currentZoom >= 10) baseStep = 0.55;
+          else baseStep = 0.85;
+          const targetZoom = currentZoom - direction * baseStep * (0.6 + magnitude);
+          mapRef.setZoom(targetZoom, { animate: true });
+        };
+        wheelContainer.addEventListener('wheel', handleWheelSmooth, { passive: false });
+        customWheelHandlerRef.current = { handler: handleWheelSmooth, container: wheelContainer };
 
         window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
@@ -786,19 +868,19 @@ const App = () => {
         };
         map.on('contextmenu', handleContextMenu);
 
-        mapInstanceRef.current = map;
         mapInstanceRef.current.__contextHandler = handleContextMenu;
         routeLayerGroupRef.current = window.L.layerGroup().addTo(map);
         routeDraftLayerRef.current = window.L.layerGroup().addTo(map);
         addMarkersToMap(map);
         refreshSavedRoutes();
         refreshRouteDraftLayers();
+        configureMapZoomDynamics(map);
         
     } catch (err) {
         console.error("Map Init Error:", err);
     }
 
-  }, [isLeafletReady, viewMode]);
+  }, [isLeafletReady, viewMode, configureMapZoomDynamics]);
 
   const handleRouteLongPress = useCallback((route) => {
     if (!route) return;
