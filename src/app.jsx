@@ -15,6 +15,42 @@ const ROUTE_COLORS = ['#34d399', '#60a5fa', '#f472b6', '#f97316', '#a855f7', '#f
 const AVERAGE_CAR_SPEED_KMH = 60;
 const ROUTE_LONG_PRESS_MS = 800;
 const getRoutePaletteColor = (index = 0) => ROUTE_COLORS[index % ROUTE_COLORS.length];
+const BASE_DISASTER_TYPE_OPTIONS = [
+  'Banjir',
+  'Banjir Bandang',
+  'Banjir & Longsor',
+  'Longsor',
+  'Longsor & Banjir',
+  'Kebakaran',
+  'Gempa Bumi',
+  'Akses Putus',
+  'Akses Aman',
+  'Akses Udara',
+  'Belum Tercatat',
+  'Dapur Umum'
+];
+const TYPE_SELECT_CUSTOM_VALUE = '__custom';
+const normalizeTypeValue = (value = '') => value.trim().toLowerCase();
+const buildTypeOptions = (regionsList = []) => {
+  const seen = new Set();
+  const options = [];
+  const register = (label) => {
+    const trimmed = (label || '').trim();
+    if (!trimmed) return;
+    const key = normalizeTypeValue(trimmed);
+    if (seen.has(key)) return;
+    seen.add(key);
+    options.push(trimmed);
+  };
+  BASE_DISASTER_TYPE_OPTIONS.forEach(register);
+  regionsList.forEach((region) => register(region?.disasterType));
+  return options;
+};
+const isTypeWithinOptions = (options = [], value) => {
+  if (!value) return false;
+  const key = normalizeTypeValue(value);
+  return options.some((option) => normalizeTypeValue(option) === key);
+};
 
 const formatLocationName = (raw = '') => {
   const cleaned = raw.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -198,6 +234,7 @@ const App = () => {
   const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
   const [locationOptions, setLocationOptions] = useState(SUMATRA_LOCATIONS);
   const [isFetchingLocations, setIsFetchingLocations] = useState(false);
+  const typeOptions = useMemo(() => buildTypeOptions(regions), [regions]);
   const [locationFetchMessage, setLocationFetchMessage] = useState(null);
   const [isSyncingRegions, setIsSyncingRegions] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState(null);
@@ -286,6 +323,13 @@ const App = () => {
       routeHoldTimerRef.current = null;
     }
   }, []);
+  const editTypeSelectValue = useMemo(() => {
+    if (!editingId || !editFormData) return TYPE_SELECT_CUSTOM_VALUE;
+    return isTypeWithinOptions(typeOptions, editFormData.disasterType)
+      ? editFormData.disasterType
+      : TYPE_SELECT_CUSTOM_VALUE;
+  }, [editingId, editFormData, typeOptions]);
+  const showEditCustomTypeInput = Boolean(editingId && editTypeSelectValue === TYPE_SELECT_CUSTOM_VALUE);
 
   const computeSidebarPosition = useCallback((region, force = false) => {
     if (!region || !mapInstanceRef.current || !mapContainerRef.current) return;
@@ -973,6 +1017,7 @@ const App = () => {
         const isAccessCut = typeLower.includes('akses putus');
         const isAccessAir = typeLower.includes('akses udara');
         const isAccessSafe = typeLower.includes('akses aman');
+        const isPublicKitchen = typeLower.includes('dapur umum');
         const isActive = activeRegion?.id === region.id;
         const scale = isActive ? 1.5 : 1;
         const size = (value) => value * scale;
@@ -1002,6 +1047,15 @@ const App = () => {
               <div style="width: ${size(10)}px; height: ${size(10)}px; border-radius: 9999px; background: #22c55e; border: ${size(2)}px solid #064e3b;"></div>
             </div>
           `
+          : isPublicKitchen
+          ? `
+            <div style="position: relative; width: ${size(22)}px; height: ${size(22)}px; display: flex; align-items: center; justify-content: center;">
+              <div style="width: ${size(18)}px; height: ${size(18)}px; border-radius: ${size(5)}px; background: linear-gradient(135deg,#fde047,#f97316); border: ${size(2)}px solid #78350f; box-shadow: 0 0 10px rgba(249,115,22,0.45); display: flex; align-items: center; justify-content: center;">
+                <span style="color: #0f172a; font-size: ${size(9)}px; font-weight: 800; letter-spacing: 0.3px;">DU</span>
+              </div>
+              <div style="position: absolute; top: ${size(2)}px; width: ${size(8)}px; height: ${size(3)}px; border-radius: 9999px; background: rgba(255,255,255,0.85); opacity: 0.9;"></div>
+            </div>
+          `
           : `
             <div style="position: relative; width: ${size(24)}px; height: ${size(24)}px; display: flex; align-items: center; justify-content: center;">
               <div class="${pulseClass} absolute inset-0 rounded-full ${severityClass} opacity-75"></div>
@@ -1009,11 +1063,30 @@ const App = () => {
             </div>
           `;
 
+        const iconSize = isAccessAir
+          ? [size(36), size(36)]
+          : isAccessCut
+          ? [size(24), size(24)]
+          : isAccessSafe
+          ? [size(20), size(20)]
+          : isPublicKitchen
+          ? [size(22), size(22)]
+          : [size(24), size(24)];
+        const iconAnchor = isAccessAir
+          ? [size(18), size(18)]
+          : isAccessCut
+          ? [size(12), size(12)]
+          : isAccessSafe
+          ? [size(10), size(10)]
+          : isPublicKitchen
+          ? [size(11), size(11)]
+          : [size(12), size(12)];
+
         const customIcon = window.L.divIcon({
             className: 'custom-div-icon',
             html: iconHtml,
-            iconSize: isAccessAir ? [size(36), size(36)] : isAccessCut ? [size(24), size(24)] : isAccessSafe ? [size(20), size(20)] : [size(24), size(24)],
-            iconAnchor: isAccessAir ? [size(18), size(18)] : isAccessCut ? [size(12), size(12)] : isAccessSafe ? [size(10), size(10)] : [size(12), size(12)]
+            iconSize,
+            iconAnchor
         });
 
         const marker = window.L.marker([region.lat, region.lng], { icon: customIcon, draggable: isActive && isEditingPosition }).addTo(map);
@@ -2004,6 +2077,10 @@ const App = () => {
 
   const renderMapAddOverlay = () => {
     if (!mapAddForm.open) return null;
+    const mapTypeSelectValue = isTypeWithinOptions(typeOptions, mapFormData.type)
+      ? mapFormData.type
+      : TYPE_SELECT_CUSTOM_VALUE;
+    const showMapCustomTypeInput = mapTypeSelectValue === TYPE_SELECT_CUSTOM_VALUE;
     return (
       <div className="fixed inset-0 z-[650] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm px-4 py-6">
         <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl p-6 relative shadow-2xl">
@@ -2023,12 +2100,32 @@ const App = () => {
             <form onSubmit={handleMapFormSubmit} className="mt-4 space-y-3">
               <div>
                 <label className="text-[11px] font-semibold text-slate-400 uppercase">Jenis / Tipe</label>
-                <select value={mapFormData.type} onChange={(e) => setMapFormData({ ...mapFormData, type: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
-                  <option value="Banjir">Banjir</option>
-                  <option value="Longsor">Longsor</option>
-                  <option value="Akses Putus">Akses Putus</option>
-                  <option value="Akses Aman">Akses Aman</option>
+                <select
+                  value={mapTypeSelectValue}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    if (nextValue === TYPE_SELECT_CUSTOM_VALUE) {
+                      setMapFormData((prev) => ({ ...prev, type: '' }));
+                    } else {
+                      setMapFormData((prev) => ({ ...prev, type: nextValue }));
+                    }
+                  }}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                >
+                  {typeOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                  <option value={TYPE_SELECT_CUSTOM_VALUE}>Masukkan Manual</option>
                 </select>
+                {showMapCustomTypeInput && (
+                  <input
+                    value={mapFormData.type}
+                    onChange={(e) => setMapFormData((prev) => ({ ...prev, type: e.target.value }))}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white mt-2"
+                    placeholder="Tulis jenis secara manual"
+                  />
+                )}
+                <span className="text-[10px] text-slate-500 mt-1 inline-block">Tambahkan titik Dapur Umum atau pilih tipe lain yang tersedia.</span>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-slate-400 uppercase">Nama Wilayah</label>
@@ -2421,9 +2518,36 @@ const App = () => {
                                 <span className="text-[10px] text-slate-500">Gunakan nama kabupaten/kota lengkap agar mudah dicari.</span>
                             </div>
                             <div className="flex flex-col gap-2">
-                                <label className="text-[11px] font-semibold text-slate-400 tracking-wide uppercase">Jenis Bencana</label>
-                                <input required placeholder="Contoh: Banjir Bandang" value={editFormData.disasterType} onChange={e => setEditFormData({...editFormData, disasterType: e.target.value})} className="bg-slate-800 border-slate-700 rounded p-2 text-white" />
-                                <span className="text-[10px] text-slate-500">Tuliskan jenis bencana utama (banjir, longsor, angin kencang, dll).</span>
+                                <label className="text-[11px] font-semibold text-slate-400 tracking-wide uppercase">Jenis / Tipe</label>
+                                <select
+                                    required
+                                    value={editTypeSelectValue}
+                                    onChange={(e) => {
+                                        if (!editFormData) return;
+                                        const nextValue = e.target.value;
+                                        if (nextValue === TYPE_SELECT_CUSTOM_VALUE) {
+                                            setEditFormData((prev) => ({ ...prev, disasterType: '' }));
+                                        } else {
+                                            setEditFormData((prev) => ({ ...prev, disasterType: nextValue }));
+                                        }
+                                    }}
+                                    className="bg-slate-800 border-slate-700 rounded p-2 text-white"
+                                >
+                                    {typeOptions.map((option) => (
+                                        <option key={option} value={option}>{option}</option>
+                                    ))}
+                                    <option value={TYPE_SELECT_CUSTOM_VALUE}>Masukkan Manual</option>
+                                </select>
+                                {showEditCustomTypeInput && (
+                                    <input
+                                        required
+                                        placeholder="Contoh: Banjir Bandang"
+                                        value={editFormData?.disasterType || ''}
+                                        onChange={(e) => setEditFormData((prev) => ({ ...prev, disasterType: e.target.value }))}
+                                        className="bg-slate-900 border-slate-800 rounded p-2 text-white"
+                                    />
+                                )}
+                                <span className="text-[10px] text-slate-500">Gunakan dropdown untuk memilih Dapur Umum atau tipe lain. Pilih &quot;Masukkan Manual&quot; jika ingin mengetik sendiri.</span>
                             </div>
                             <div className="flex flex-col gap-2">
                                 <label className="text-[11px] font-semibold text-slate-400 tracking-wide uppercase">Latitude</label>
