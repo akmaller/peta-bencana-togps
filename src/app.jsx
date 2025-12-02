@@ -27,7 +27,8 @@ const BASE_DISASTER_TYPE_OPTIONS = [
   'Akses Aman',
   'Akses Udara',
   'Belum Tercatat',
-  'Dapur Umum'
+  'Dapur Umum',
+  'Posko Bantuan'
 ];
 const TYPE_SELECT_CUSTOM_VALUE = '__custom';
 const normalizeTypeValue = (value = '') => value.trim().toLowerCase();
@@ -1018,6 +1019,7 @@ const App = () => {
         const isAccessAir = typeLower.includes('akses udara');
         const isAccessSafe = typeLower.includes('akses aman');
         const isPublicKitchen = typeLower.includes('dapur umum');
+        const isAidPost = typeLower.includes('posko bantuan');
         const isActive = activeRegion?.id === region.id;
         const scale = isActive ? 1.5 : 1;
         const size = (value) => value * scale;
@@ -1056,6 +1058,16 @@ const App = () => {
               <div style="position: absolute; top: ${size(2)}px; width: ${size(8)}px; height: ${size(3)}px; border-radius: 9999px; background: rgba(255,255,255,0.85); opacity: 0.9;"></div>
             </div>
           `
+          : isAidPost
+          ? `
+            <div style="position: relative; width: ${size(24)}px; height: ${size(24)}px; display: flex; align-items: center; justify-content: center;">
+              <svg width="${size(20)}" height="${size(20)}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 0 6px rgba(239,68,68,0.6));">
+                <polygon points="12,2 21,9 17.5,22 6.5,22 3,9" fill="#f87171" stroke="#7f1d1d" stroke-width="1.5" />
+                <polygon points="12,4.3 19.1,9.7 16.4,20.3 7.6,20.3 4.9,9.7" fill="#b91c1c" opacity="0.4" />
+              </svg>
+              <div style="position:absolute; bottom:${size(4)}px; width:${size(8)}px; height:${size(2.4)}px; border-radius:9999px; background:rgba(255,255,255,0.6);"></div>
+            </div>
+          `
           : `
             <div style="position: relative; width: ${size(24)}px; height: ${size(24)}px; display: flex; align-items: center; justify-content: center;">
               <div class="${pulseClass} absolute inset-0 rounded-full ${severityClass} opacity-75"></div>
@@ -1071,6 +1083,8 @@ const App = () => {
           ? [size(20), size(20)]
           : isPublicKitchen
           ? [size(22), size(22)]
+          : isAidPost
+          ? [size(24), size(24)]
           : [size(24), size(24)];
         const iconAnchor = isAccessAir
           ? [size(18), size(18)]
@@ -1080,6 +1094,8 @@ const App = () => {
           ? [size(10), size(10)]
           : isPublicKitchen
           ? [size(11), size(11)]
+          : isAidPost
+          ? [size(12), size(12)]
           : [size(12), size(12)];
 
         const customIcon = window.L.divIcon({
