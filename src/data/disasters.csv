@@ -14,7 +14,7 @@ acehutara,Kab. Aceh Utara (Aceh),4.978,97.142,Banjir,4 Meninggal,Siaga,high,Aceh
 acehselatan,Kab. Aceh Selatan (Aceh),3.285,97.218,Banjir,-,Siaga,medium,Genangan air dilaporkan di Aceh Selatan.,27-Nov-2025,Antara
 subulussalam,Kota Subulussalam (Aceh),2.633,98.006,Banjir,-,Siaga,medium,Kota Subulussalam terdampak banjir kiriman.,27-Nov-2025,Antara
 naganraya,Kab. Nagan Raya (Aceh),4.167,96.5,Banjir,-,Siaga,medium,Banjir merendam akses jalan di Nagan Raya.,27-Nov-2025,Antara
-padangpariaman,Kab. Padang Pariaman (Sumbar),-0.583,100.166,Banjir & Longsor,4 Meninggal,Darurat,high,Banjir dan longsor menelan korban jiwa.,27-Nov-2025,MetroTV
+padangpariaman,Kab. Padang Pariaman (Sumbar),-0.5985723330058212,100.18312454223634,Banjir & Longsor,4 Meninggal,Darurat,high,Banjir dan longsor menelan korban jiwa.,27-Nov-2025,MetroTV
 agam,Kab. Agam (Sumbar),-0.25,100.166,Banjir & Longsor,3 Meninggal,Darurat,high,Longsor parah terjadi di wilayah Agam.,27-Nov-2025,MetroTV
 tanahdatar,Kab. Tanah Datar (Sumbar),-0.466,100.583,Banjir & Longsor,1 Meninggal,Darurat,high,Tanah Datar terdampak bencana hidrometeorologi.,27-Nov-2025,MetroTV
 padangpanjang,Kota Padang Panjang (Sumbar),-0.462,100.397,Banjir & Longsor,1 Meninggal,Darurat,high,Kota Padang Panjang melaporkan korban jiwa.,27-Nov-2025,MetroTV
@@ -175,7 +175,7 @@ api-1572,Kota Sungai Penuh,-2.1132906932,101.3392575947,Belum Tercatat,-,Waspada
 api-1274,Kota Tanjung Balai,2.963995556,99.7947250866,Belum Tercatat,-,Waspada,medium,Data wilayah Kota Tanjung Balai (Sumatera Utara) hasil sinkronisasi otomatis.,28/11/2025,API Ibnux (auto-sync)
 api-2172,Kota Tanjung Pinang,0.9195784605,104.4870654946,Belum Tercatat,-,Waspada,medium,Data wilayah Kota Tanjung Pinang (Kepulauan Riau) hasil sinkronisasi otomatis.,28/11/2025,API Ibnux (auto-sync)
 api-1276,Kota Tebing Tinggi,3.3282698019,99.1560308546,Belum Tercatat,-,Waspada,medium,Data wilayah Kota Tebing Tinggi (Sumatera Utara) hasil sinkronisasi otomatis.,28/11/2025,API Ibnux (auto-sync)
-new-1764319110409,Kab. Aceh Tenggara,3.3689313686,97.6975971654,Banjir & Longsor,2 Meninggal,Waspada,high,,28/11/2025,-
+new-1764319110409,Kab. Aceh Tenggara,3.436658158559092,97.79205322265626,Banjir & Longsor,2 Meninggal,Waspada,high,,28/11/2025,-
 new-1764319219742,Kab. Bener Meriah,4.7700537375,97.0041179538,Banjir,1 meninggal,Waspada,high,,28/11/2025,-
 new-1764319249179,Kab. Aceh Tengah,4.519888081,96.8813051968,Banjir,15 Meninggal,Waspada,critical,,28/11/2025,-
 akses-perbatasan-sumut-aceh,Perbatasan Sumut - Aceh (Jalan Nasional),4.152651,97.49641,Akses Putus,-,Darurat,critical,Longsor di beberapa titik jalan nasional hari ke-3.,28-Nov-2025,Laporan Jalan
@@ -189,11 +189,11 @@ akses-bireuen-takengon,Bireuen → Takengon (Aceh Tengah),5.00637,96.74794,Akses
 akses-jembatan-teping-mane,Jembatan Teping Mane (Bireuen),5.0684,96.7168,Akses Putus,-,Darurat,critical,"Jembatan ambruk, akses transportasi warga terputus.",28-Nov-2025,Laporan Jalan
 akses-acetengah-naganraya,Aceh Tengah → Nagan Raya,4.40996,96.36628,Akses Putus,-,Darurat,critical,Jembatan di jalur Takengon - Jeuram terputus total.,28-Nov-2025,Laporan Jalan
 akses-takengon-iseise-gayolues,Takengon → Ise-ise → Gayo Lues,4.379,97.2789,Akses Putus,-,Darurat,critical,Longsor memutus akses utama antar kabupaten.,28-Nov-2025,Laporan Jalan
-akses-benermeriah-acetengah,Bener Meriah → Aceh Tengah,4.82956,96.90225,Akses Putus,-,Darurat,critical,"Ruas jalan nasional putus, distribusi logistik terhambat.",28-Nov-2025,Laporan Jalan
+akses-benermeriah-acetengah,Bener Meriah → Aceh Tengah,4.746491880280582,96.8935775756836,Akses Putus,-,Darurat,critical,"Ruas jalan nasional putus, distribusi logistik terhambat.",28-Nov-2025,Laporan Jalan
 akses-benermeriah-bireuen,Bener Meriah → Bireuen,5.07582,96.8729,Akses Putus,-,Darurat,critical,Jalur Simpang Teritit - Bireuen terputus akibat badan jalan longsor.,28-Nov-2025,Laporan Jalan
 akses-benermeriah-lhokseumawe,Bener Meriah → Lhokseumawe (Eks Jalan KKA),4.99577,97.04011,Akses Putus,-,Darurat,critical,"Jalan provinsi eks-KKA lumpuh total, jalur barang berhenti.",28-Nov-2025,Laporan Jalan
 akses-bandara-rembele,Bandara Rembele (Bener Meriah),4.73925,96.84725,Akses Udara,-,Siaga,high,"Alternatif karena akses darat lumpuh, bandara dipakai evakuasi/logistik.",28-Nov-2025,Laporan Jalan
-akses-bandara-perintis-gayo-lues,Bandara Perintis Gayo Lues,3.95754,97.35148,Akses Udara,-,Siaga,high,Menjadi satu-satunya akses ke Gayo Lues saat jalur darat terputus.,28-Nov-2025,Laporan Jalan
+akses-bandara-perintis-gayo-lues,Bandara Perintis Gayo Lues,3.9478307691214565,97.35620498657228,Akses Udara,-,Siaga,high,Menjadi satu-satunya akses ke Gayo Lues saat jalur darat terputus.,28-Nov-2025,Laporan Jalan
 akses-jembatan-gunung-nago,"Jembatan Gunung Nago – Lambung Bukit, Pauh",-0.94385,100.45762,Akses Putus,-,Darurat,critical,Akses warga terputus karena badan jembatan rusak berat akibat banjir.,28-Nov-2025,Laporan Jalan
 akses-jembatan-kalawi-koto-panjang,"Jembatan Kalawi Koto Panjang – Limau Manis, Pauh",-0.95076,100.4319,Akses Putus,-,Darurat,critical,Struktur jembatan patah dan pondasi tergerus aliran banjir.,28-Nov-2025,Laporan Jalan
 akses-jembatan-kampung-tanjung,"Jembatan Kampung Tanjung – Gunung Sarik, Kuranji",-0.90741,100.38722,Akses Putus,-,Darurat,critical,Terputus akibat arus sungai yang meningkat tajam.,28-Nov-2025,Laporan Jalan
@@ -203,7 +203,7 @@ new-1764329348679,Jalan Sungai Penuh – Tapan KM 20 (Perbatasan Jambi – Sumba
 solokkab,Kab. Solok (Sumbar),-0.956,100.805,Banjir & Longsor,"Beberapa kecamatan (Kubung, Gunung Talang, Singkarak, Lembah Gumanti, Hiliran Gumanti, Junjuang Siriah) terdampak",Darurat,high,"Nagari Koto Hilalang, Koto Baru, Sumani, Saniang Baka, Selayo, Aie Dingin, Talang Babungo, Kayu Jao, Paninggahan terdampak banjir dan longsor.",28-Nov-2025,BPBD Sumbar
 mentawai,Kab. Kepulauan Mentawai (Sumbar),-2,99,Banjir,"Sejumlah desa di Siberut Utara/Barat/Selatan, Barat Daya, Sipora Selatan, Pagai Utara terdampak; beberapa jembatan putus",Kritis,critical,"Desa Malancan, Mongan Poula, Sotboyak, Sigapokna, Muntei, Sagulubbe, Saureinu, Matobe, Saumanganya terdampak banjir, beberapa jembatan desa putus.",28-Nov-2025,BPBD Sumbar
 tanahdatar,Kab. Tanah Datar (Sumbar),-0.47,100.57,Banjir,"Banjir melanda Batipuh, X Koto, Batipuh Selatan, Lintau Buo Utara, Lintau Buo",Darurat,high,"Nagari Tambangan, Sumpu, Guguak Malalo, Singgalang, Batipuh Baruh, Tanjung Bonai, Lubuk Jantan terdampak banjir.",28-Nov-2025,BPBD Tanah Datar
-padpariaman,Kab. Padang Pariaman (Sumbar),-0.55,100.2,Banjir,Banjir di Kec. Batang Anai dan Ulakan Tapakis,Darurat,high,"Nagari Katapiang, Sungai Buluah Barat, Ulakan, Tapakis mengalami banjir dan genangan di permukiman.",28-Nov-2025,BPBD Padang Pariaman
+padpariaman,Kab. Padang Pariaman (Sumbar),-0.5609804168085338,100.21591186523439,Banjir,Banjir di Kec. Batang Anai dan Ulakan Tapakis,Darurat,high,"Nagari Katapiang, Sungai Buluah Barat, Ulakan, Tapakis mengalami banjir dan genangan di permukiman.",28-Nov-2025,BPBD Padang Pariaman
 agam,Kab. Agam (Sumbar),-0.28,100.05,Banjir & Longsor,"Sejumlah nagari di Palembayan, Maninjau, Tanjung Mutiara, Malalak, Palupuah terdampak",Darurat,high,"Nagari 3 Koto Silingkang, Saraleh Aia, Gumarang, Koto Kaciak, Koto Malingtang, Bayua, Koto Gadang, Duo Koto, Tiku 5 Jorong, Durian Kapeh Darussalam, Malalak Selatan/Utara/Barat/Timur, Pagadih, Koto Rantang, Nan 5 terdampak banjir dan longsor.",28-Nov-2025,BPBD Agam
 padang,Kota Padang (Sumbar),-0.95,100.35,Banjir & Kerusakan Jembatan,Lima jembatan rusak/putus di beberapa kecamatan,Darurat,high,"Jembatan Gunung Nago, Kalawi Koto Panjang, Kampung Tanjuang, Sawah Liek, dan Batipuh Panjang rusak berat/putus sehingga menghambat akses warga.",28-Nov-2025,BPBD Kota Padang
 kotasolok,Kota Solok (Sumbar),-0.79,100.65,Banjir & Pohon Tumbang,"752 KK, 2.947 jiwa terdampak banjir; 1 rumah rusak akibat pohon tumbang",Darurat,high,"Banjir di Kel. Tanah Garam, KTK, Sinapa Piliang, VI Suku, Aro IV Korong, Koto Panjang, Nan Balimo serta pohon tumbang di Tanah Garam dan Kampung Jawa.",25-Nov-2025,BPBD Kota Solok
@@ -214,7 +214,7 @@ sungaipenuh,Kota Sungai Penuh (Jambi),-2.063,101.386,Longsor,Akses jalan Sungai 
 new-1764331705022,Jembatan Putus - Longsor,1.833593,98.860682,Akses Putus,-,Waspada,medium,,28/11/2025,-
 new-1764331795658,Akses Putus,1.676787,98.826902,Akses Putus,-,Waspada,medium,,28/11/2025,-
 new-1764331960606,Bandara,2.259507,98.98992,Akses Udara,-,Waspada,medium,,28/11/2025,-
-new-1764332060596,Bandara,1.43853,99.473513,Akses Udara,-,Waspada,medium,,28/11/2025,-
+new-1764332060596,Bandara,1.3975283353896422,99.43141937255861,Akses Udara,-,Waspada,medium,,28/11/2025,-
 new-1764332188626,Bandara,1.553574,98.897403,Akses Udara,-,Waspada,medium,,28/11/2025,-
 akses-perbatasan-sumut-aceh,Perbatasan Sumut - Aceh (Jalan Nasional),4.152651,97.49641,Akses Putus,-,Darurat,critical,Longsor di beberapa titik jalan nasional hari ke-3.,28-Nov-2025,Laporan Jalan
 akses-jembatan-meureudu,Jembatan Meureudu (Bireuen - Pidie Jaya),5.202334,96.21687,Akses Putus,-,Darurat,critical,Menutup akses Banda Aceh - Lhoksuemawe - Aceh Timur - Langsa - Aceh Tamiang.,28-Nov-2025,Laporan Jalan
@@ -227,11 +227,11 @@ akses-bireuen-takengon,Bireuen → Takengon (Aceh Tengah),5.00637,96.74794,Akses
 akses-jembatan-teping-mane,Jembatan Teping Mane (Bireuen),5.0684,96.7168,Akses Putus,-,Darurat,critical,"Jembatan ambruk, akses transportasi warga terputus.",28-Nov-2025,Laporan Jalan
 akses-acetengah-naganraya,Aceh Tengah → Nagan Raya,4.40996,96.36628,Akses Putus,-,Darurat,critical,Jembatan di jalur Takengon - Jeuram terputus total.,28-Nov-2025,Laporan Jalan
 akses-takengon-iseise-gayolues,Takengon → Ise-ise → Gayo Lues,4.379,97.2789,Akses Putus,-,Darurat,critical,Longsor memutus akses utama antar kabupaten.,28-Nov-2025,Laporan Jalan
-akses-benermeriah-acetengah,Bener Meriah → Aceh Tengah,4.82956,96.90225,Akses Putus,-,Darurat,critical,"Ruas jalan nasional putus, distribusi logistik terhambat.",28-Nov-2025,Laporan Jalan
+akses-benermeriah-acetengah,Bener Meriah → Aceh Tengah,4.746491880280582,96.8935775756836,Akses Putus,-,Darurat,critical,"Ruas jalan nasional putus, distribusi logistik terhambat.",28-Nov-2025,Laporan Jalan
 akses-benermeriah-bireuen,Bener Meriah → Bireuen,5.07582,96.8729,Akses Putus,-,Darurat,critical,Jalur Simpang Teritit - Bireuen terputus akibat badan jalan longsor.,28-Nov-2025,Laporan Jalan
 akses-benermeriah-lhokseumawe,Bener Meriah → Lhokseumawe (Eks Jalan KKA),4.99577,97.04011,Akses Putus,-,Darurat,critical,"Jalan provinsi eks-KKA lumpuh total, jalur barang berhenti.",28-Nov-2025,Laporan Jalan
 akses-bandara-rembele,Bandara Rembele (Bener Meriah),4.73925,96.84725,Akses Udara,-,Siaga,high,"Alternatif karena akses darat lumpuh, bandara dipakai evakuasi/logistik.",28-Nov-2025,Laporan Jalan
-akses-bandara-perintis-gayo-lues,Bandara Perintis Gayo Lues,3.95754,97.35148,Akses Udara,-,Siaga,high,Menjadi satu-satunya akses ke Gayo Lues saat jalur darat terputus.,28-Nov-2025,Laporan Jalan
+akses-bandara-perintis-gayo-lues,Bandara Perintis Gayo Lues,3.9478307691214565,97.35620498657228,Akses Udara,-,Siaga,high,Menjadi satu-satunya akses ke Gayo Lues saat jalur darat terputus.,28-Nov-2025,Laporan Jalan
 akses-jembatan-gunung-nago,"Jembatan Gunung Nago – Lambung Bukit, Pauh",-0.94385,100.45762,Akses Putus,-,Darurat,critical,Akses warga terputus karena badan jembatan rusak berat akibat banjir.,28-Nov-2025,Laporan Jalan
 akses-jembatan-kalawi-koto-panjang,"Jembatan Kalawi Koto Panjang – Limau Manis, Pauh",-0.95076,100.4319,Akses Putus,-,Darurat,critical,Struktur jembatan patah dan pondasi tergerus aliran banjir.,28-Nov-2025,Laporan Jalan
 akses-jembatan-kampung-tanjung,"Jembatan Kampung Tanjung – Gunung Sarik, Kuranji",-0.90741,100.38722,Akses Putus,-,Darurat,critical,Terputus akibat arus sungai yang meningkat tajam.,28-Nov-2025,Laporan Jalan
@@ -349,7 +349,7 @@ map-1764366897550,BADIRI,1.577540360526658,98.84124755859376,Longsor,-,Waspada,h
 map-1764366934251,SARUDIK,1.7154919,98.8151276,Longsor,-,Waspada,high,-,29/11/2025,Map Context Form
 map-1764366961250,TAPIAN NAULI,1.7939115463121575,98.741512298584,Longsor,-,Waspada,high,-,29/11/2025,Map Context Form
 map-1764367370580,batang toru,1.5092768,99.1264739,Banjir,-,Waspada,high,-,29/11/2025,Map Context Form
-map-1764367537299,angkola barat,2.9649441,99.064201,Longsor,-,Waspada,high,kecamatan angkola barat longsor di beberapa titik jalinnas mengakibatkan akses terputus,29/11/2025,Map Context Form
+map-1764367537299,angkola barat,2.9649441,99.064201,Longsor,-,Waspada,high,kecamatan angkola barat longsor di beberapa titik jalinnas mengakibatkan jalan,,
 "nasional terputus dari psp ke batang toru begitu sebalik nya.,29/11/2025,Map Context Form",,,,,,,,,,
 map-1764367583848,kecamatan sipirok,1.6016272,99.27389,Longsor,-,Waspada,high,kecamatan sipirok longsor beberapa titik dan banjir mengakibatkan semua akses,29/11/2025,Map Context Form
 map-1764367726646,Kecamatan angkola sangkunur,1.2783348,99.095287,Longsor,-,Waspada,high,Kecamatan angkola sangkunur,,
@@ -360,6 +360,27 @@ map-1764367784869,Kecamatan Angkola selatan,1.4384083,99.2791782,Longsor,-,Waspa
 map-1764367833022,Kecamatan Angkola selatan,1.4172848894185544,99.28490638732912,Akses Putus,-,Waspada,high,Kecamatan Angkola selatan longsor dan banjir mengakibatkatkan jalan hotmix,,
 "amblas dan akses umum terisolir.,29/11/2025,Map Context Form",,,,,,,,,,
 map-1764367905113,Kecamatan angkola sangkunur,1.2259120069353961,99.37168121337892,Longsor,-,Waspada,high,,,
-Longsor dan banjir mengakibatkan jalan putus total di danau siais dan akses dari,,,,,,,,,,
+Longsor dan banjir mengakibatkan jalan putus total di danau siais dan akses dari,,,,,,,,,,
+,,,,,,,,,,
+,,,,,,,,,,
 "madina ke tapsel pitus total.,29/11/2025,Map Context Form",,,,,,,,,,
-map-1764422260026,Aceh tamiyang ke langkat,4.198508047098719,98.05023193359376,Akses Putus,-,Waspada,medium,akses putus,29/11/2025,Map Context Form
+map-1764396375414,Akses putus total ke bener meriah,4.762230386829083,96.97597503662111,Akses Putus,-,Waspada,high,-,29/11/2025,Map Context Form
+map-1764422377813,Akses terputus di Aceh Tamiyang,4.229323563941682,98.05915832519531,Akses Putus,-,Waspada,medium,Akses Medan ke Langsa terputus di Aceh Tamiyang,29/11/2025,Map Context Form
+map-1764423086084,Brong Capa - Pidie Jaya,5.248657550680371,96.21062278747559,Banjir,-,Waspada,high,-,29/11/2025,Map Context Form
+new-1764424997926,Kab. Langkat,3.927056,98.312994,Akses Putus,-,Waspada,high,Pasiran,,
+Gebang, Langkat Regency,,,,,,,,,
+"Terputus,29/11/2025,-",,,,,,,,,,
+map-1764425310946,"Lembah Seulawah, Aceh Besar Regency, Aceh",5.3608768,95.7174735,Akses Putus,-,Waspada,medium,"Lembah Seulawah, Aceh Besar Regency, Aceh",29/11/2025,Map Context Form
+map-1764425418483,Dagang Kerawan,3.5269693,98.8094096,Akses Putus,-,Waspada,medium,Dagang Kerawan,,
+Tanjung Morawa, Deli Serdang Regency,,,,,,,,,
+map-1764425584206,Padang Pariaman Regency floods,-0.6776654,100.2549837,Banjir,-,Waspada,high,Padang Pariaman Regency floods,29/11/2025,Map Context Form
+map-1764425685051,Nan Sabaris,-0.6507817,100.1780264,Banjir,-,Waspada,high,"Padang Pariaman Regency, West Sumatra",29/11/2025,Map Context Form
+map-1764439775327,Akses putus di pakat,2.152213192251099,98.50127220153809,Akses Putus,-,Waspada,medium,Akses putus di pakat,30/11/2025,Map Context Form
+map-1764492269942,Dapur 7 (KESIRA 1),3.5416772,98.6761812,Akses Aman,-,Waspada,medium,"Alamat : Pangkalan Masyhur, Kec. Medan Johor, Kota Medan, Sumatera Utara 20219",,
+3.541561, 98.676177,,,,,,,,,
+PIC : Khoirudin ,,,,,,,,,,
+"No HP : +62 811-6791-950,30/11/2025,Map Context Form",,,,,,,,,,
+map-1764568071296,Adiankoting,1.8656427056165443,98.91645034912226,Banjir,-,Waspada,medium,Titik Dokling 1 Sumut,1/12/2025,Map Context Form
+map-1764597396623,Pahaejae,1.7915050262651477,99.11560511562345,Longsor,-,Waspada,high,-,1/12/2025,Map Context Form
+map-1764597526541,Parmonangan desa manalu,2.026388392109105,98.78067011604047,Longsor,-,Waspada,high,-,1/12/2025,Map Context Form
+map-1764598245307,Sitoliompu,1.787973642615543,99.07578305704628,Longsor,-,Waspada,high,Pahaejae,1/12/2025,Map Context Form
