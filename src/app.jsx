@@ -2453,8 +2453,33 @@ const App = () => {
     if (!photoGalleryModal.open) return null;
     const { photos, title, activeIndex } = photoGalleryModal;
     const activePhotoSrc = photos[activeIndex] ? resolvePhotoUrl(photos[activeIndex]) : null;
+    const hasPhotos = Array.isArray(photos) && photos.length > 0;
+
+    const handlePrev = () => {
+      if (!hasPhotos) return;
+      setPhotoGalleryModal((prev) => ({
+        ...prev,
+        activeIndex: (prev.activeIndex - 1 + photos.length) % photos.length
+      }));
+    };
+
+    const handleNext = () => {
+      if (!hasPhotos) return;
+      setPhotoGalleryModal((prev) => ({
+        ...prev,
+        activeIndex: (prev.activeIndex + 1) % photos.length
+      }));
+    };
+
     return (
-      <div className="fixed inset-0 z-[675] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm px-4 py-6">
+      <div
+        className="fixed inset-0 z-[675] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm px-4 py-6"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) {
+            closePhotoGallery();
+          }
+        }}
+      >
         <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl p-6 relative shadow-2xl">
           <button onClick={closePhotoGallery} className="absolute top-4 right-4 text-slate-400 hover:text-white">
             <X size={20} />
@@ -2463,33 +2488,60 @@ const App = () => {
             <Image size={16} /> Album Foto
           </div>
           <h3 className="text-lg font-bold text-white mb-4">{title}</h3>
-          {activePhotoSrc ? (
-            <div className="w-full aspect-video bg-slate-950/50 border border-slate-800 rounded-xl overflow-hidden flex items-center justify-center">
+          <div className="relative w-full aspect-video bg-slate-950/50 border border-slate-800 rounded-xl overflow-hidden flex items-center justify-center">
+            {hasPhotos && activePhotoSrc ? (
               <img src={activePhotoSrc} alt={`${title} foto ${activeIndex + 1}`} className="w-full h-full object-contain" />
-            </div>
-          ) : (
-            <div className="w-full aspect-video bg-slate-950/50 border border-dashed border-slate-700 rounded-xl flex items-center justify-center text-slate-500">
-              Tidak ada foto dipilih
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-slate-500 text-sm">Tidak ada foto dipilih</div>
+            )}
+            {hasPhotos && photos.length > 1 && (
+              <>
+                <button
+                  onClick={handlePrev}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 bg-slate-900/70 border border-slate-700 text-white rounded-full p-2 hover:bg-slate-800"
+                >
+                  ‹
+                </button>
+                <button
+                  onClick={handleNext}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 bg-slate-900/70 border border-slate-700 text-white rounded-full p-2 hover:bg-slate-800"
+                >
+                  ›
+                </button>
+              </>
+            )}
+          </div>
+          {hasPhotos && (
+            <div className="mt-4">
+              <p className="text-[11px] text-slate-400 mb-2">Thumbnail lainnya</p>
+              <div className="relative">
+                <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                  {photos.map((photoName, index) => (
+                    <button
+                      key={`${photoName}-${index}`}
+                      onClick={() => setPhotoGalleryModal((prev) => ({ ...prev, activeIndex: index }))}
+                      className={`relative w-20 h-20 rounded-lg overflow-hidden border flex-shrink-0 ${
+                        index === activeIndex ? 'border-cyan-400 shadow shadow-cyan-500/30' : 'border-slate-800'
+                      }`}
+                    >
+                      <img
+                        src={resolvePhotoUrl(photoName)}
+                        alt={`${title} foto ${index + 1}`}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-slate-950/10 hover:bg-slate-950/0 transition-colors" />
+                    </button>
+                  ))}
+                </div>
+                {photos.length > 4 && (
+                  <div className="text-[10px] text-slate-500 mt-1 text-right">
+                    Gunakan scroll untuk melihat semua foto
+                  </div>
+                )}
+              </div>
             </div>
           )}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-4 max-h-72 overflow-y-auto custom-scrollbar pr-1">
-            {photos.map((photoName, index) => (
-              <button
-                key={`${photoName}-${index}`}
-                onClick={() => setPhotoGalleryModal((prev) => ({ ...prev, activeIndex: index }))}
-                className={`relative w-full pt-[70%] rounded-lg overflow-hidden border ${index === activeIndex ? 'border-cyan-400 shadow shadow-cyan-500/30' : 'border-slate-800'}`}
-              >
-                <img
-                  src={resolvePhotoUrl(photoName)}
-                  alt={`${title} foto ${index + 1}`}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  loading="lazy"
-                />
-                <div className="absolute inset-0 bg-slate-950/20 hover:bg-slate-950/5 transition-colors" />
-              </button>
-            ))}
-          </div>
-          <p className="text-[11px] text-slate-500 mt-3">Klik thumbnail untuk memperbesar tampilan foto di atas.</p>
         </div>
       </div>
     );
