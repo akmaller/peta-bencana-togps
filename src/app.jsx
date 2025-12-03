@@ -2323,12 +2323,12 @@ const App = () => {
     const showMapCustomTypeInput = mapTypeSelectValue === TYPE_SELECT_CUSTOM_VALUE;
     return (
       <div className="fixed inset-0 z-[650] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm px-4 py-6">
-        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl p-6 relative shadow-2xl">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg max-h-[95vh] p-6 relative shadow-2xl flex flex-col">
           <button onClick={closeMapForm} className="absolute top-4 right-4 text-slate-400 hover:text-white">
             <X size={18} />
           </button>
-          <h3 className="text-lg font-bold text-white mb-2">Tambahkan Kondisi dari Peta</h3>
-          <p className="text-xs text-slate-400">Klik kanan di peta membuka formulir ini. Koordinat: <span className="font-mono text-cyan-400">{mapAddForm.lat?.toFixed(4)}, {mapAddForm.lng?.toFixed(4)}</span></p>
+          <h3 className="text-lg font-bold text-white mb-1 pr-8">Data Titik Baru</h3>
+          <p className="text-xs text-slate-400 mb-2">Koordinat: <span className="font-mono text-cyan-400">{mapAddForm.lat?.toFixed(4)}, {mapAddForm.lng?.toFixed(4)}</span></p>
           {!mapFormAuthorized ? (
             <form onSubmit={handleMapFormUnlock} className="mt-4 space-y-3">
               <label className="text-xs text-slate-400 uppercase tracking-wide">Password Admin</label>
@@ -2337,111 +2337,118 @@ const App = () => {
               <button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2 rounded-lg">Verifikasi Password</button>
             </form>
           ) : (
-            <form onSubmit={handleMapFormSubmit} className="mt-4 space-y-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase">Jenis / Tipe</label>
-                <select
-                  value={mapTypeSelectValue}
-                  onChange={(e) => {
-                    const nextValue = e.target.value;
-                    if (nextValue === TYPE_SELECT_CUSTOM_VALUE) {
-                      setMapFormData((prev) => ({ ...prev, type: '' }));
-                    } else {
-                      setMapFormData((prev) => ({ ...prev, type: nextValue }));
-                    }
-                  }}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white"
-                >
-                  {typeOptions.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                  <option value={TYPE_SELECT_CUSTOM_VALUE}>Masukkan Manual</option>
-                </select>
+            <form onSubmit={handleMapFormSubmit} className="mt-4 flex-1 flex flex-col overflow-hidden">
+              <div className="space-y-3 overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-400 uppercase">Jenis</label>
+                    <select
+                      value={mapTypeSelectValue}
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        if (nextValue === TYPE_SELECT_CUSTOM_VALUE) {
+                          setMapFormData((prev) => ({ ...prev, type: '' }));
+                        } else {
+                          setMapFormData((prev) => ({ ...prev, type: nextValue }));
+                        }
+                      }}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                    >
+                      {typeOptions.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                      <option value={TYPE_SELECT_CUSTOM_VALUE}>Manual</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-400 uppercase">Status</label>
+                    <input value={mapFormData.status} onChange={(e) => setMapFormData({ ...mapFormData, status: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Waspada" />
+                  </div>
+                </div>
                 {showMapCustomTypeInput && (
                   <input
                     value={mapFormData.type}
                     onChange={(e) => setMapFormData((prev) => ({ ...prev, type: e.target.value }))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white mt-2"
-                    placeholder="Tulis jenis secara manual"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white"
+                    placeholder="Masukkan tipe kejadian"
                   />
                 )}
-                <span className="text-[10px] text-slate-500 mt-1 inline-block">Tambahkan titik Dapur Umum atau pilih tipe lain yang tersedia.</span>
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase">Nama Wilayah</label>
-                <input value={mapFormData.name} onChange={(e) => setMapFormData({ ...mapFormData, name: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Ruas Bireuen - Takengon" required />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase">Deskripsi</label>
-                <textarea value={mapFormData.description} onChange={(e) => setMapFormData({ ...mapFormData, description: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" rows="3" placeholder="Detail kejadian (opsional)" />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase">Dampak / Korban</label>
-                <input value={mapFormData.victims} onChange={(e) => setMapFormData({ ...mapFormData, victims: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder='Contoh: "Akses total, 200 KK terdampak"' />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase">Tingkat Keparahan</label>
-                <select value={mapFormData.severity} onChange={(e) => setMapFormData({ ...mapFormData, severity: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
-                  <option value="medium">Medium (Waspada)</option>
-                  <option value="high">High (Siaga)</option>
-                  <option value="critical">Critical (Darurat)</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase">Label Status</label>
-                <input value={mapFormData.status} onChange={(e) => setMapFormData({ ...mapFormData, status: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Darurat (opsional)" />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase flex items-center gap-2">
-                  Foto Dokumentasi
-                  <span className="text-[10px] text-slate-500">(maks {MAX_PHOTOS_PER_REGION} foto)</span>
-                </label>
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  onChange={handleMapPhotoInputChange}
-                  className="mt-1 block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-500 bg-slate-900 border border-slate-800 rounded-lg"
-                />
-                {mapPhotoError && <p className="text-[10px] text-amber-400 mt-1">{mapPhotoError}</p>}
-                {mapExistingPhotos.length > 0 && (
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {mapExistingPhotos.map((photoName, index) => (
-                      <div key={`${photoName}-${index}`} className="relative rounded-lg overflow-hidden border border-slate-800">
-                        <img src={resolvePhotoUrl(photoName)} alt={`Foto ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveMapExistingPhoto(photoName)}
-                          className="absolute top-1 right-1 bg-slate-900/80 text-[10px] px-1.5 py-0.5 rounded text-red-300 hover:bg-slate-900"
-                        >
-                          Hapus
-                        </button>
-                      </div>
-                    ))}
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-400 uppercase">Nama Lokasi</label>
+                  <input value={mapFormData.name} onChange={(e) => setMapFormData({ ...mapFormData, name: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Ruas Bireuen - Takengon" required />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-400 uppercase">Deskripsi</label>
+                    <textarea value={mapFormData.description} onChange={(e) => setMapFormData({ ...mapFormData, description: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" rows="3" placeholder="Ringkas situasinya" />
                   </div>
-                )}
-                {mapPhotoFiles.length > 0 && (
-                  <ul className="mt-2 text-[11px] text-slate-300 space-y-1">
-                    {mapPhotoFiles.map((file, index) => (
-                      <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2">
-                        <span className="truncate">{file.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveMapNewPhoto(index)}
-                          className="text-red-400 hover:text-red-300 text-[10px]"
-                        >
-                          Hapus
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-400 uppercase">Dampak</label>
+                    <textarea value={mapFormData.victims} onChange={(e) => setMapFormData({ ...mapFormData, victims: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" rows="3" placeholder='Contoh: "200 KK terdampak"' />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-400 uppercase">Keparahan</label>
+                  <select value={mapFormData.severity} onChange={(e) => setMapFormData({ ...mapFormData, severity: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-400 uppercase flex items-center justify-between">
+                    Foto Dokumentasi
+                    <span className="text-[10px] text-slate-500">maks {MAX_PHOTOS_PER_REGION}</span>
+                  </label>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleMapPhotoInputChange}
+                    className="mt-1 block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-500 bg-slate-900 border border-slate-800 rounded-lg"
+                  />
+                  {mapPhotoError && <p className="text-[10px] text-amber-400 mt-1">{mapPhotoError}</p>}
+                  {mapExistingPhotos.length > 0 && (
+                    <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                      {mapExistingPhotos.map((photoName, index) => (
+                        <div key={`${photoName}-${index}`} className="relative rounded-lg overflow-hidden border border-slate-800 w-20 h-20 flex-shrink-0">
+                          <img src={resolvePhotoUrl(photoName)} alt={`Foto ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveMapExistingPhoto(photoName)}
+                            className="absolute top-1 right-1 bg-slate-900/80 text-[10px] px-1.5 py-0.5 rounded text-red-300 hover:bg-slate-900"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {mapPhotoFiles.length > 0 && (
+                    <ul className="mt-2 text-[11px] text-slate-300 space-y-1">
+                      {mapPhotoFiles.map((file, index) => (
+                        <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2">
+                          <span className="truncate">{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveMapNewPhoto(index)}
+                            className="text-red-400 hover:text-red-300 text-[11px]"
+                          >
+                            Hapus
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
-              {mapFormError && <p className="text-xs text-red-400">{mapFormError}</p>}
-              <button type="submit" disabled={isSubmittingMapForm} className={`w-full py-2 rounded-lg font-semibold text-white flex items-center justify-center gap-2 ${isSubmittingMapForm ? 'bg-slate-700 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500'}`}>
-                {isSubmittingMapForm ? <Activity size={16} className="animate-spin" /> : <Plus size={16} />}
-                {isSubmittingMapForm ? 'Menyimpan...' : 'Simpan ke Database'}
-              </button>
+              <div className="pt-3 mt-3 border-t border-slate-800">
+                {mapFormError && <p className="text-xs text-red-400 mb-2">{mapFormError}</p>}
+                <button type="submit" disabled={isSubmittingMapForm} className={`w-full py-2 rounded-lg font-semibold text-white flex items-center justify-center gap-2 ${isSubmittingMapForm ? 'bg-slate-700 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500'}`}>
+                  {isSubmittingMapForm ? <Activity size={16} className="animate-spin" /> : <Plus size={16} />}
+                  {isSubmittingMapForm ? 'Menyimpan...' : 'Simpan Titik'}
+                </button>
+              </div>
             </form>
           )}
         </div>
