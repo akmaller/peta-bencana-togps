@@ -4,6 +4,8 @@ import path from 'path';
 import multer from 'multer';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13,7 +15,10 @@ const DATA_PATH = path.join(ROOT_DIR, 'src', 'data', 'disasters.csv');
 const ROUTE_DATA_PATH = path.join(ROOT_DIR, 'src', 'data', 'routes.csv');
 const DIST_PATH = path.join(ROOT_DIR, 'dist');
 const UPLOAD_ROOT = path.join(ROOT_DIR, 'uploads');
-const PHOTO_UPLOAD_PATH = path.join(UPLOAD_ROOT, 'photos');
+const MEDIA_UPLOAD_PATH = path.join(UPLOAD_ROOT, 'photos');
+const MAX_MEDIA_PER_REQUEST = 12;
+
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 const CSV_HEADERS = ['id', 'name', 'lat', 'lng', 'disasterType', 'victimsText', 'status', 'severity', 'description', 'lastUpdate', 'source', 'photos'];
 const ROUTE_CSV_HEADERS = ['id', 'name', 'color', 'coordinates', 'distanceKm', 'durationMinutes', 'createdAt'];
@@ -55,7 +60,7 @@ const serializeRouteRecords = (records = []) => {
 
 const ensureUploadDirectory = async () => {
   try {
-    await fs.mkdir(PHOTO_UPLOAD_PATH, { recursive: true });
+    await fs.mkdir(MEDIA_UPLOAD_PATH, { recursive: true });
   } catch (error) {
     console.error('Failed to prepare upload directory:', error);
   }
@@ -73,21 +78,31 @@ const sanitizeFileName = (raw = '') => {
     .toLowerCase();
 };
 
+const getFileCategory = (file) => {
+  const mimetype = (file?.mimetype || '').toLowerCase();
+  if (mimetype.startsWith('video/')) return 'video';
+  if (mimetype.startsWith('image/')) return 'image';
+  return 'other';
+};
+
 const upload = multer({
   storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, PHOTO_UPLOAD_PATH),
+    destination: (req, file, cb) => cb(null, MEDIA_UPLOAD_PATH),
     filename: (req, file, cb) => {
       const locationName = sanitizeFileName(req.body?.locationName || 'lokasi');
       const safeBase = locationName || 'lokasi';
-      const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+      const extFromOriginal = path.extname(file.originalname || '').toLowerCase();
+      const fallbackExt = getFileCategory(file) === 'video' ? '.mp4' : '.jpg';
+      const ext = extFromOriginal || fallbackExt;
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
       cb(null, `${safeBase}-${uniqueSuffix}${ext}`);
     }
   }),
-  limits: { files: 12 },
+  limits: { files: MAX_MEDIA_PER_REQUEST },
   fileFilter: (req, file, cb) => {
-    if (!file.mimetype || !file.mimetype.startsWith('image/')) {
-      return cb(new Error('Hanya file gambar yang diizinkan.'));
+    const category = getFileCategory(file);
+    if (category === 'other') {
+      return cb(new Error('Hanya gambar atau video yang diizinkan.'));
     }
     cb(null, true);
   }
@@ -108,7 +123,7 @@ const convertUploadToJpeg = async (file) => {
   }
   const parsed = path.parse(file.filename);
   const targetName = `${parsed.name}.jpg`;
-  const targetPath = path.join(PHOTO_UPLOAD_PATH, targetName);
+  const targetPath = path.join(MEDIA_UPLOAD_PATH, targetName);
   const cleanupTemporary = async () => {
     await fs.unlink(file.path).catch(() => {});
   };
@@ -141,9 +156,49 @@ const convertUploadToJpeg = async (file) => {
   }
 };
 
+const convertUploadToVideo = (file) => new Promise((resolve, reject) => {
+  if (!file?.path || !file?.filename) {
+    return reject(new Error('File video tidak ditemukan.'));
+  }
+  const parsed = path.parse(file.filename);
+  let targetName = `${parsed.name}.mp4`;
+  if (`${parsed.name}${parsed.ext}`.toLowerCase() === targetName.toLowerCase()) {
+    targetName = `${parsed.name}-compressed-${Date.now()}.mp4`;
+  }
+  const targetPath = path.join(MEDIA_UPLOAD_PATH, targetName);
+
+  ffmpeg(file.path)
+    .outputOptions([
+      "-c:v libx264",
+      "-preset medium",
+      "-crf 20",
+      "-c:a copy",
+      "-movflags +faststart",
+      "-vf scale='min(1920,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease",
+      "-max_muxing_queue_size 1024"
+    ])
+    .on('end', async () => {
+      await fs.unlink(file.path).catch(() => {});
+      resolve(targetName);
+    })
+    .on('error', (error) => {
+      console.error('Video conversion failed:', error);
+      reject(new Error('Konversi video gagal.'));
+    })
+    .save(targetPath);
+});
+
+const processUploadedFile = async (file) => {
+  const category = getFileCategory(file);
+  if (category === 'video') {
+    return convertUploadToVideo(file);
+  }
+  return convertUploadToJpeg(file);
+};
+
 const app = express();
 app.use(express.json({ limit: '1mb' }));
-app.use('/uploads', express.static(PHOTO_UPLOAD_PATH));
+app.use('/uploads', express.static(MEDIA_UPLOAD_PATH));
 
 app.get('/api/disasters', async (req, res) => {
   try {
@@ -195,25 +250,28 @@ app.put('/api/disasters', async (req, res) => {
   }
 });
 
-app.post('/api/photos/upload', (req, res) => {
-  upload.array('photos', 12)(req, res, async (err) => {
+const handleMediaUpload = (req, res) => {
+  upload.array('photos', MAX_MEDIA_PER_REQUEST)(req, res, async (err) => {
     if (err) {
-      console.error('Photo upload failed:', err);
-      return res.status(400).json({ error: err.message || 'Gagal mengunggah foto.' });
+      console.error('Media upload failed:', err);
+      return res.status(400).json({ error: err.message || 'Gagal mengunggah media.' });
     }
     try {
       const files = Array.isArray(req.files) ? req.files : [];
-      const convertedFiles = await Promise.all(files.map(convertUploadToJpeg));
+      const processedFiles = await Promise.all(files.map(processUploadedFile));
       res.json({
         success: true,
-        files: convertedFiles.filter(Boolean)
+        files: processedFiles.filter(Boolean)
       });
     } catch (error) {
-      console.error('Photo conversion error:', error);
-      res.status(500).json({ error: error.message || 'Gagal mengonversi foto ke JPG.' });
+      console.error('Media conversion error:', error);
+      res.status(500).json({ error: error.message || 'Gagal memproses media.' });
     }
   });
-});
+};
+
+app.post('/api/photos/upload', handleMediaUpload);
+app.post('/api/media/upload', handleMediaUpload);
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(DIST_PATH));

@@ -64,11 +64,12 @@ const formatLocationName = (raw = '') => {
 };
 
 const normalizeLocationKey = (name = '') => name.replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
-const MAX_PHOTOS_PER_REGION = 12;
+const MAX_MEDIA_PER_REGION = 12;
+const VIDEO_FILE_REGEX = /\.(mp4|mov|m4v|avi|mkv|webm)$/i;
 
-const parsePhotosCell = (raw) => {
+const parseMediaCell = (raw) => {
   if (Array.isArray(raw)) {
-    return raw.map((value) => String(value)).filter(Boolean).slice(0, MAX_PHOTOS_PER_REGION);
+    return raw.map((value) => String(value)).filter(Boolean).slice(0, MAX_MEDIA_PER_REGION);
   }
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
@@ -76,23 +77,25 @@ const parsePhotosCell = (raw) => {
     try {
       const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed)) {
-        return parsed.map((value) => String(value)).filter(Boolean).slice(0, MAX_PHOTOS_PER_REGION);
+        return parsed.map((value) => String(value)).filter(Boolean).slice(0, MAX_MEDIA_PER_REGION);
       }
     } catch (error) {
-      // Fallback to delimiter-based parsing
+      // fallback to delimiter parsing
     }
     return trimmed
       .split('|')
       .map((value) => value.trim())
       .filter(Boolean)
-      .slice(0, MAX_PHOTOS_PER_REGION);
+      .slice(0, MAX_MEDIA_PER_REGION);
   }
   return [];
 };
 
-const normalizePhotos = (raw) => parsePhotosCell(raw);
+const normalizeMediaList = (raw) => parseMediaCell(raw);
 
-const resolvePhotoUrl = (fileName = '') => {
+const isVideoFileName = (fileName = '') => VIDEO_FILE_REGEX.test(fileName);
+
+const resolveMediaUrl = (fileName = '') => {
   if (!fileName) return '';
   if (/^https?:\/\//i.test(fileName)) return fileName;
   const base = API_BASE_URL || '';
@@ -101,29 +104,45 @@ const resolvePhotoUrl = (fileName = '') => {
   return `${normalizedBase}/uploads/${normalizedFile}`;
 };
 
-const uploadRegionPhotos = async (files = [], locationName = '') => {
+const uploadRegionMedia = async (files = [], locationName = '', onProgress) => {
   if (!files?.length) return [];
-  if (typeof fetch === 'undefined') {
-    throw new Error('Lingkungan tidak mendukung upload.');
+  if (typeof XMLHttpRequest === 'undefined') {
+    throw new Error('Fitur upload tidak tersedia di lingkungan ini.');
   }
   const uploadEndpoint = API_BASE_URL
-    ? `${API_BASE_URL}/api/photos/upload`
-    : '/api/photos/upload';
+    ? `${API_BASE_URL}/api/media/upload`
+    : '/api/media/upload';
   const formData = new FormData();
   formData.append('locationName', locationName || 'lokasi');
   files.forEach((file) => formData.append('photos', file));
-  const response = await fetch(uploadEndpoint, {
-    method: 'POST',
-    body: formData
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', uploadEndpoint);
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      const percent = Math.round((event.loaded / event.total) * 100);
+      if (typeof onProgress === 'function') {
+        onProgress(percent);
+      }
+    };
+    xhr.onerror = () => reject(new Error('Gagal mengunggah media.'));
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        return reject(new Error('Upload media gagal.'));
+      }
+      try {
+        const payload = JSON.parse(xhr.responseText);
+        if (!payload?.files || !Array.isArray(payload.files)) {
+          reject(new Error('Server tidak mengembalikan daftar media.'));
+          return;
+        }
+        resolve(payload.files);
+      } catch (error) {
+        reject(new Error('Gagal membaca respon server.'));
+      }
+    };
+    xhr.send(formData);
   });
-  if (!response.ok) {
-    throw new Error('Gagal mengunggah foto.');
-  }
-  const payload = await response.json();
-  if (!payload?.files || !Array.isArray(payload.files)) {
-    throw new Error('Server tidak mengembalikan daftar foto.');
-  }
-  return payload.files;
 };
 
 const parseCSVRow = (line = '') => {
@@ -170,7 +189,7 @@ const parseCSV = (csvText = '') => {
       description: values[8]?.replace(/"/g, '').trim(),
       lastUpdate: values[9],
       source: values[10],
-      photos: parsePhotosCell(values[11])
+      photos: parseMediaCell(values[11])
     };
   });
 };
@@ -308,9 +327,11 @@ const App = () => {
   const [mapFormAuthorized, setMapFormAuthorized] = useState(false);
   const [mapFormError, setMapFormError] = useState(null);
   const [isSubmittingMapForm, setIsSubmittingMapForm] = useState(false);
-  const [mapExistingPhotos, setMapExistingPhotos] = useState([]);
-  const [mapPhotoFiles, setMapPhotoFiles] = useState([]);
-  const [mapPhotoError, setMapPhotoError] = useState(null);
+  const [mapExistingMedia, setMapExistingMedia] = useState([]);
+  const [mapMediaFiles, setMapMediaFiles] = useState([]);
+  const [mapMediaError, setMapMediaError] = useState(null);
+  const [mapUploadProgress, setMapUploadProgress] = useState(null);
+  const [mapIsUploadingMedia, setMapIsUploadingMedia] = useState(false);
   const [mapEditTarget, setMapEditTarget] = useState(null);
   const [isEditingPosition, setIsEditingPosition] = useState(false);
   const [positionEditCoords, setPositionEditCoords] = useState(null);
@@ -360,8 +381,11 @@ const App = () => {
   const [routeDeletePassword, setRouteDeletePassword] = useState('');
   const [routeDeleteError, setRouteDeleteError] = useState(null);
   const [isDeletingRoute, setIsDeletingRoute] = useState(false);
-  const [editPhotoFiles, setEditPhotoFiles] = useState([]);
+  const [editMediaFiles, setEditMediaFiles] = useState([]);
+  const [editUploadProgress, setEditUploadProgress] = useState(null);
+  const [isUploadingEditMedia, setIsUploadingEditMedia] = useState(false);
   const [photoGalleryModal, setPhotoGalleryModal] = useState({ open: false, photos: [], title: '', activeIndex: 0 });
+  const [isMobileDetailOpen, setIsMobileDetailOpen] = useState(false);
 
   // Refs
   const mapContainerRef = useRef(null);
@@ -446,6 +470,27 @@ const App = () => {
     }
   }, [routeDraftDistance]);
 
+  useEffect(() => {
+    if (isMobile && activeRegion) {
+      requestAnimationFrame(() => setIsMobileDetailOpen(true));
+    } else {
+      setIsMobileDetailOpen(false);
+    }
+  }, [isMobile, activeRegion]);
+
+  const closeActiveRegionPanel = useCallback(() => {
+    if (isMobile && activeRegion) {
+      setIsMobileDetailOpen(false);
+      setTimeout(() => {
+        setActiveRegion(null);
+        setSidebarPosition(null);
+      }, 250);
+    } else {
+      setActiveRegion(null);
+      setSidebarPosition(null);
+    }
+  }, [isMobile, activeRegion]);
+
   const configureMapZoomDynamics = useCallback((map) => {
     if (!map) return;
     const updateProfile = () => {
@@ -497,8 +542,7 @@ const App = () => {
     setRouteDraftColor(color);
     setRouteDraftName(`Jalur ${routesRef.current.length + 1}`);
     setIsCreatingRoute(true);
-    setActiveRegion(null);
-    setSidebarPosition(null);
+    closeActiveRegionPanel();
     closeMapForm();
     if (isEditingPosition) {
       setIsEditingPosition(false);
@@ -707,7 +751,9 @@ const App = () => {
 
   useEffect(() => {
     if (!editingId) {
-      setEditPhotoFiles([]);
+      setEditMediaFiles([]);
+      setEditUploadProgress(null);
+      setIsUploadingEditMedia(false);
     }
   }, [editingId]);
 
@@ -1357,8 +1403,8 @@ const App = () => {
 
   const handleEditClick = (region) => {
     setEditingId(region.id);
-    setEditFormData({ ...region, photos: normalizePhotos(region?.photos), locationPreset: getPresetForRegion(region) });
-    setEditPhotoFiles([]);
+    setEditFormData({ ...region, photos: normalizeMediaList(region?.photos), locationPreset: getPresetForRegion(region) });
+    setEditMediaFiles([]);
   };
 
   const handleAddNew = () => {
@@ -1378,36 +1424,36 @@ const App = () => {
         photos: [],
         locationPreset: 'custom'
     });
-    setEditPhotoFiles([]);
+    setEditMediaFiles([]);
   };
 
-  const handleEditPhotoInputChange = (event) => {
+  const handleEditMediaInputChange = (event) => {
     const files = Array.from(event.target?.files || []);
     if (!files.length) return;
     const currentExisting = Array.isArray(editFormData.photos) ? editFormData.photos.length : 0;
-    const remainingSlots = MAX_PHOTOS_PER_REGION - (currentExisting + editPhotoFiles.length);
+    const remainingSlots = MAX_MEDIA_PER_REGION - (currentExisting + editMediaFiles.length);
     if (remainingSlots <= 0) {
-      showFeedback(`Maksimal ${MAX_PHOTOS_PER_REGION} foto per titik.`);
+      showFeedback(`Maksimal ${MAX_MEDIA_PER_REGION} file media per titik.`);
       event.target.value = '';
       return;
     }
     const acceptedFiles = files.slice(0, remainingSlots);
-    setEditPhotoFiles((prev) => [...prev, ...acceptedFiles]);
+    setEditMediaFiles((prev) => [...prev, ...acceptedFiles]);
     if (acceptedFiles.length < files.length) {
-      showFeedback(`Hanya ${MAX_PHOTOS_PER_REGION} foto yang dapat disimpan per titik.`);
+      showFeedback(`Hanya ${MAX_MEDIA_PER_REGION} file media yang dapat disimpan per titik.`);
     }
     event.target.value = '';
   };
 
-  const handleRemoveEditExistingPhoto = (fileName) => {
+  const handleRemoveEditExistingMedia = (fileName) => {
     setEditFormData((prev) => ({
       ...prev,
       photos: (prev.photos || []).filter((photo) => photo !== fileName)
     }));
   };
 
-  const handleRemoveEditNewPhoto = (index) => {
-    setEditPhotoFiles((prev) => prev.filter((_, idx) => idx !== index));
+  const handleRemoveEditNewMedia = (index) => {
+    setEditMediaFiles((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleSyncFromAPI = async () => {
@@ -1466,15 +1512,23 @@ const App = () => {
         lng: parseFloat(dataWithoutPreset.lng),
         photos: Array.isArray(dataWithoutPreset.photos) ? dataWithoutPreset.photos : []
     };
-    try {
-      const uploaded = await uploadRegionPhotos(editPhotoFiles, formData.name);
-      formData.photos = normalizePhotos([...(formData.photos || []), ...uploaded]);
-      setEditFormData((prev) => ({ ...prev, photos: formData.photos }));
-      setEditPhotoFiles([]);
-    } catch (error) {
-      console.error('Edit form photo upload failed:', error);
-      showFeedback(error?.message || 'Gagal mengunggah foto.');
-      return;
+    if (editMediaFiles.length) {
+      try {
+        setIsUploadingEditMedia(true);
+        setEditUploadProgress(0);
+        const uploaded = await uploadRegionMedia(editMediaFiles, formData.name, setEditUploadProgress);
+        formData.photos = normalizeMediaList([...(formData.photos || []), ...uploaded]);
+        setEditFormData((prev) => ({ ...prev, photos: formData.photos }));
+        setEditMediaFiles([]);
+        setEditUploadProgress(null);
+        setIsUploadingEditMedia(false);
+      } catch (error) {
+        console.error('Edit form media upload failed:', error);
+        showFeedback(error?.message || 'Gagal mengunggah media.');
+        setEditUploadProgress(null);
+        setIsUploadingEditMedia(false);
+        return;
+      }
     }
     const currentRegions = regionsRef.current;
     const nextRegions = editingId === 'NEW'
@@ -1658,9 +1712,11 @@ const App = () => {
     setMapFormAuthorized(false);
     setMapFormError(null);
     setIsSubmittingMapForm(false);
-    setMapExistingPhotos([]);
-    setMapPhotoFiles([]);
-    setMapPhotoError(null);
+    setMapExistingMedia([]);
+    setMapMediaFiles([]);
+    setMapMediaError(null);
+    setMapUploadProgress(null);
+    setMapIsUploadingMedia(false);
   };
 
   const openMapFormAt = (lat, lng, editingRegion = null) => {
@@ -1673,9 +1729,10 @@ const App = () => {
         status: editingRegion.status || '',
         severity: editingRegion.severity || 'medium'
       });
-      setMapExistingPhotos(normalizePhotos(editingRegion.photos));
-      setMapPhotoFiles([]);
-      setMapPhotoError(null);
+      setMapExistingMedia(normalizeMediaList(editingRegion.photos));
+      setMapMediaFiles([]);
+      setMapMediaError(null);
+      setMapUploadProgress(null);
       setMapEditTarget(editingRegion);
       setMapAddForm({ open: true, lat: editingRegion.lat, lng: editingRegion.lng });
     } else {
@@ -1690,38 +1747,39 @@ const App = () => {
     setMapEditTarget(null);
   };
 
-  const handleMapPhotoInputChange = (event) => {
+  const handleMapMediaInputChange = (event) => {
     const files = Array.from(event.target?.files || []);
     if (!files.length) return;
-    const totalSelected = mapExistingPhotos.length + mapPhotoFiles.length;
-    const remainingSlots = MAX_PHOTOS_PER_REGION - totalSelected;
+    const totalSelected = mapExistingMedia.length + mapMediaFiles.length;
+    const remainingSlots = MAX_MEDIA_PER_REGION - totalSelected;
     if (remainingSlots <= 0) {
-      setMapPhotoError(`Maksimal ${MAX_PHOTOS_PER_REGION} foto per titik.`);
+      setMapMediaError(`Maksimal ${MAX_MEDIA_PER_REGION} file media per titik.`);
       event.target.value = '';
       return;
     }
     const acceptedFiles = files.slice(0, remainingSlots);
-    setMapPhotoFiles((prev) => [...prev, ...acceptedFiles]);
-    setMapPhotoError(acceptedFiles.length < files.length
-      ? `Maksimal ${MAX_PHOTOS_PER_REGION} foto per titik. Beberapa file tidak dimasukkan.`
+    setMapMediaFiles((prev) => [...prev, ...acceptedFiles]);
+    setMapMediaError(acceptedFiles.length < files.length
+      ? `Hanya ${MAX_MEDIA_PER_REGION} file media yang diizinkan per titik.`
       : null);
     event.target.value = '';
   };
 
-  const handleRemoveMapExistingPhoto = (fileName) => {
-    setMapExistingPhotos((prev) => prev.filter((photo) => photo !== fileName));
+  const handleRemoveMapExistingMedia = (fileName) => {
+    setMapExistingMedia((prev) => prev.filter((media) => media !== fileName));
   };
 
-  const handleRemoveMapNewPhoto = (index) => {
-    setMapPhotoFiles((prev) => prev.filter((_, idx) => idx !== index));
+  const handleRemoveMapNewMedia = (index) => {
+    setMapMediaFiles((prev) => prev.filter((_, idx) => idx !== index));
   };
   const openPhotoGallery = useCallback((region, startIndex = 0) => {
-    if (!region?.photos || !region.photos.length) return;
-    const boundedIndex = Math.min(Math.max(startIndex, 0), region.photos.length - 1);
+    const mediaList = normalizeMediaList(region?.photos);
+    if (!mediaList.length) return;
+    const boundedIndex = Math.min(Math.max(startIndex, 0), mediaList.length - 1);
     setPhotoGalleryModal({
       open: true,
-      photos: region.photos,
-      title: region.name || 'Album Foto',
+      photos: mediaList,
+      title: region.name || 'Album Media',
       activeIndex: boundedIndex
     });
   }, []);
@@ -1965,7 +2023,7 @@ const App = () => {
   const persistRegions = async (nextRegions, { successMessage } = {}) => {
     const normalizedRegions = (nextRegions || []).map((region) => ({
       ...region,
-      photos: normalizePhotos(region?.photos)
+      photos: normalizeMediaList(region?.photos)
     }));
     setRegions(normalizedRegions);
     if (typeof fetch === 'undefined') {
@@ -2058,18 +2116,30 @@ const App = () => {
     const timestamp = new Date().toLocaleDateString('id-ID');
     const isEditing = Boolean(mapEditTarget);
     const entryId = isEditing ? mapEditTarget.id : `map-${Date.now()}`;
-    let uploadedPhotos = [];
-    try {
-      uploadedPhotos = await uploadRegionPhotos(mapPhotoFiles, mapFormData.name || `Titik ${timestamp}`);
-    } catch (error) {
-      console.error('Map form photo upload failed:', error);
-      setMapFormError(error?.message || 'Gagal mengunggah foto.');
-      setIsSubmittingMapForm(false);
-      return;
+    let uploadedMedia = [];
+    if (mapMediaFiles.length) {
+      setMapIsUploadingMedia(true);
+      setMapUploadProgress(0);
+      try {
+        uploadedMedia = await uploadRegionMedia(
+          mapMediaFiles,
+          mapFormData.name || `Titik ${timestamp}`,
+          setMapUploadProgress
+        );
+      } catch (error) {
+        console.error('Map form media upload failed:', error);
+        setMapFormError(error?.message || 'Gagal mengunggah media.');
+        setIsSubmittingMapForm(false);
+        setMapIsUploadingMedia(false);
+        setMapUploadProgress(null);
+        return;
+      }
+      setMapIsUploadingMedia(false);
+      setMapUploadProgress(null);
     }
-    const combinedPhotos = normalizePhotos([
-      ...mapExistingPhotos,
-      ...uploadedPhotos
+    const combinedMedia = normalizeMediaList([
+      ...mapExistingMedia,
+      ...uploadedMedia
     ]);
     const newEntry = {
       id: entryId,
@@ -2083,7 +2153,7 @@ const App = () => {
       description: mapFormData.description || '-',
       lastUpdate: timestamp,
       source: 'Map Context Form',
-      photos: combinedPhotos
+      photos: combinedMedia
     };
     const nextRegions = isEditing
       ? regionsRef.current.map(region => region.id === entryId ? newEntry : region)
@@ -2094,9 +2164,9 @@ const App = () => {
       if (isEditing && activeRegion?.id === entryId) {
         setActiveRegion(newEntry);
       }
-      setMapExistingPhotos([]);
-      setMapPhotoFiles([]);
-      setMapPhotoError(null);
+      setMapExistingMedia([]);
+      setMapMediaFiles([]);
+      setMapMediaError(null);
       if (isEditingPosition) {
         setIsEditingPosition(false);
         setPositionEditCoords(null);
@@ -2212,102 +2282,157 @@ const App = () => {
     </div>
   );
 
+  const renderRegionDetailSections = (isMobileVariant = false) => {
+    if (!activeRegion) return null;
+    const dragHandleProps = isMobileVariant ? {} : { onMouseDown: startSidebarDrag, onTouchStart: startSidebarDrag };
+    return (
+      <>
+        <div
+          className={`flex items-center gap-2 text-[10px] tracking-[0.2em] uppercase text-slate-500/80 ${
+            isMobileVariant ? 'mb-4 pr-2 justify-between' : 'mb-2 cursor-move select-none pr-6'
+          }`}
+          {...dragHandleProps}
+        >
+          {isMobileVariant ? (
+            <span className="text-xs font-semibold text-slate-400">Detail Titik</span>
+          ) : (
+            <>
+              <span className="inline-flex h-1.5 w-12 rounded-full bg-slate-600/70" />
+              Geser
+            </>
+          )}
+        </div>
+        <h2 className="text-lg font-bold text-white mb-2">{activeRegion.name}</h2>
+        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getSeverityColor(activeRegion.severity)}`}>{activeRegion.status}</span>
+        <div className="mt-3 space-y-3 text-sm">
+          <div className="bg-slate-950/40 border border-slate-800 rounded p-2">
+            <p className="text-[10px] text-slate-500">TYPE</p>
+            <p className="font-semibold text-white">{activeRegion.disasterType}</p>
+          </div>
+          <div className="bg-slate-950/40 border border-slate-800 rounded p-2">
+            <p className="text-[10px] text-slate-500">IMPACT</p>
+            <p className="font-mono text-cyan-400 text-xs">{activeRegion.victimsText}</p>
+          </div>
+          <div className="bg-slate-800/30 border border-slate-800 rounded p-2">
+            <p className="text-[10px] text-cyan-500/70 mb-1">REPORT</p>
+            <p className="text-xs text-slate-300">"{activeRegion.description}"</p>
+          </div>
+          <div className="text-[10px] text-slate-500 font-mono">
+            Lat {activeRegion.lat?.toFixed(4)} · Lng {activeRegion.lng?.toFixed(4)} <br /> Update {activeRegion.lastUpdate}
+          </div>
+          <div className="flex flex-col gap-2">
+            <button onClick={() => openMapFormAt(activeRegion.lat, activeRegion.lng, activeRegion)} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg flex items-center justify-center gap-2 disabled:bg-slate-700" disabled={isEditingPosition}>
+              <Edit3 size={14} /> Edit Data Titik
+            </button>
+            <button
+              onClick={handlePositionEditButtonClick}
+              className={`w-full py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2 ${isEditingPosition ? 'bg-yellow-500 text-slate-900' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}
+            >
+              {isEditingPosition ? 'Batalkan Edit Posisi' : 'Edit Posisi Titik'}
+            </button>
+            {isEditingPosition && (
+              <div className="text-[11px] text-slate-400 font-mono text-center">
+                Lat {(positionEditCoords?.lat ?? activeRegion.lat).toFixed(5)} · Lng {(positionEditCoords?.lng ?? activeRegion.lng).toFixed(5)}
+              </div>
+            )}
+            {isEditingPosition && (
+              <button
+                onClick={handleSavePositionEdit}
+                className="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-xs font-semibold text-white rounded-lg flex items-center justify-center gap-2 disabled:bg-slate-700"
+                disabled={isSavingPosition || !positionEditCoords}
+              >
+                {isSavingPosition ? <Activity size={14} className="animate-spin" /> : null}
+                {isSavingPosition ? 'Menyimpan...' : 'Simpan Posisi Titik'}
+              </button>
+            )}
+          </div>
+          {Array.isArray(activeRegion.photos) && activeRegion.photos.length > 0 && (
+            <div className="pt-2 border-t border-slate-800/50">
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">
+                <span>Dokumentasi</span>
+                <span>{activeRegion.photos.length} File</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {activeRegion.photos.slice(0, 4).map((photoName, index) => (
+                  <button
+                    key={`${photoName}-${index}`}
+                    onClick={() => openPhotoGallery(activeRegion, index)}
+                    className="relative w-full pt-[56%] bg-slate-900/60 rounded-lg overflow-hidden border border-slate-800 group"
+                  >
+                    {isVideoFileName(photoName) ? (
+                      <video
+                        src={resolveMediaUrl(photoName)}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        muted
+                        loop
+                        playsInline
+                      />
+                    ) : (
+                      <img
+                        src={resolveMediaUrl(photoName)}
+                        alt={`${activeRegion.name} dokumentasi ${index + 1}`}
+                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-150"
+                        loading="lazy"
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-slate-950/20 group-hover:bg-slate-950/5 transition-colors" />
+                    {isVideoFileName(photoName) && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="bg-black/60 text-[10px] px-2 py-1 rounded-full">Video</span>
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {activeRegion.photos.length > 4 && (
+                <button
+                  onClick={() => openPhotoGallery(activeRegion, 0)}
+                  className="mt-3 w-full text-xs font-semibold text-cyan-300 hover:text-white py-1.5 border border-slate-800 rounded-lg flex items-center justify-center gap-2"
+                >
+                  <Image size={14} /> Lihat semua
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </>
+    );
+  };
+
   const renderSidebarModal = () => {
-    if (!activeRegion || !sidebarPosition) return null;
+    if (!activeRegion) return null;
+    if (isMobile) {
+      return (
+        <div
+          className="fixed inset-0 z-[650] bg-slate-950/70 backdrop-blur-sm flex flex-col"
+          onClick={closeActiveRegionPanel}
+        >
+          <div
+            className={`mt-auto bg-slate-900 border border-slate-800 rounded-t-3xl shadow-2xl p-5 relative transition-transform duration-300 ${
+              isMobileDetailOpen ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'
+            }`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button onClick={closeActiveRegionPanel} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+              <X size={18} />
+            </button>
+            <div className="max-h-[80vh] overflow-y-auto pr-1 custom-scrollbar">
+              {renderRegionDetailSections(true)}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    if (!sidebarPosition) return null;
     const top = sidebarPosition.top;
     const left = sidebarPosition.left;
     return (
       <div className="fixed z-[550] pointer-events-auto" style={{ top, left }}>
         <div className="w-80 bg-slate-900/95 border border-slate-700 rounded-2xl shadow-2xl p-4 relative backdrop-blur">
-          <button onClick={() => { setActiveRegion(null); setSidebarPosition(null); }} className="absolute top-3 right-3 text-slate-400 hover:text-white">
+          <button onClick={closeActiveRegionPanel} className="absolute top-3 right-3 text-slate-400 hover:text-white">
             <X size={16} />
           </button>
-          <div
-            className="flex items-center gap-2 text-[10px] tracking-[0.2em] uppercase text-slate-500/80 mb-2 cursor-move select-none pr-6"
-            onMouseDown={startSidebarDrag}
-            onTouchStart={startSidebarDrag}
-          >
-            <span className="inline-flex h-1.5 w-12 rounded-full bg-slate-600/70" />
-            Geser
-          </div>
-          <h2 className="text-lg font-bold text-white mb-2">{activeRegion.name}</h2>
-          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getSeverityColor(activeRegion.severity)}`}>{activeRegion.status}</span>
-          <div className="mt-3 space-y-3 text-sm">
-            <div className="bg-slate-950/40 border border-slate-800 rounded p-2">
-              <p className="text-[10px] text-slate-500">TYPE</p>
-              <p className="font-semibold text-white">{activeRegion.disasterType}</p>
-            </div>
-            <div className="bg-slate-950/40 border border-slate-800 rounded p-2">
-              <p className="text-[10px] text-slate-500">IMPACT</p>
-              <p className="font-mono text-cyan-400 text-xs">{activeRegion.victimsText}</p>
-            </div>
-            <div className="bg-slate-800/30 border border-slate-800 rounded p-2">
-              <p className="text-[10px] text-cyan-500/70 mb-1">REPORT</p>
-              <p className="text-xs text-slate-300">"{activeRegion.description}"</p>
-            </div>
-            <div className="text-[10px] text-slate-500 font-mono">
-              Lat {activeRegion.lat?.toFixed(4)} · Lng {activeRegion.lng?.toFixed(4)} <br /> Update {activeRegion.lastUpdate}
-            </div>
-            <div className="flex flex-col gap-2">
-              <button onClick={() => openMapFormAt(activeRegion.lat, activeRegion.lng, activeRegion)} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg flex items-center justify-center gap-2 disabled:bg-slate-700" disabled={isEditingPosition}>
-                <Edit3 size={14} /> Edit Data Titik
-              </button>
-              <button
-                onClick={handlePositionEditButtonClick}
-                className={`w-full py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2 ${isEditingPosition ? 'bg-yellow-500 text-slate-900' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}
-              >
-                {isEditingPosition ? 'Batalkan Edit Posisi' : 'Edit Posisi Titik'}
-              </button>
-              {isEditingPosition && (
-                <div className="text-[11px] text-slate-400 font-mono text-center">
-                  Lat {(positionEditCoords?.lat ?? activeRegion.lat).toFixed(5)} · Lng {(positionEditCoords?.lng ?? activeRegion.lng).toFixed(5)}
-                </div>
-              )}
-              {isEditingPosition && (
-                <button
-                  onClick={handleSavePositionEdit}
-                  className="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-xs font-semibold text-white rounded-lg flex items-center justify-center gap-2 disabled:bg-slate-700"
-                  disabled={isSavingPosition || !positionEditCoords}
-                >
-                  {isSavingPosition ? <Activity size={14} className="animate-spin" /> : null}
-                  {isSavingPosition ? 'Menyimpan...' : 'Simpan Posisi Titik'}
-                </button>
-              )}
-            </div>
-            {Array.isArray(activeRegion.photos) && activeRegion.photos.length > 0 && (
-              <div className="pt-2 border-t border-slate-800/50">
-                <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">
-                  <span>Dokumentasi</span>
-                  <span>{activeRegion.photos.length} Foto</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {activeRegion.photos.slice(0, 4).map((photoName, index) => (
-                    <button
-                      key={`${photoName}-${index}`}
-                      onClick={() => openPhotoGallery(activeRegion, index)}
-                      className="relative w-full pt-[56%] bg-slate-900/60 rounded-lg overflow-hidden border border-slate-800 group"
-                    >
-                      <img
-                        src={resolvePhotoUrl(photoName)}
-                        alt={`${activeRegion.name} dokumentasi ${index + 1}`}
-                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-150"
-                        loading="lazy"
-                      />
-                      <div className="absolute inset-0 bg-slate-950/20 group-hover:bg-slate-950/5 transition-colors" />
-                    </button>
-                  ))}
-                </div>
-                {activeRegion.photos.length > 4 && (
-                  <button
-                    onClick={() => openPhotoGallery(activeRegion, 0)}
-                    className="mt-3 w-full text-xs font-semibold text-cyan-300 hover:text-white py-1.5 border border-slate-800 rounded-lg flex items-center justify-center gap-2"
-                  >
-                    <Image size={14} /> Lihat semua
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          {renderRegionDetailSections(false)}
         </div>
       </div>
     );
@@ -2397,56 +2522,88 @@ const App = () => {
                 </div>
                 <div>
                   <label className="text-[11px] font-semibold text-slate-400 uppercase flex items-center justify-between">
-                    Foto Dokumentasi
-                    <span className="text-[10px] text-slate-500">maks {MAX_PHOTOS_PER_REGION}</span>
+                    Lampiran Media
+                    <span className="text-[10px] text-slate-500">maks {MAX_MEDIA_PER_REGION}</span>
                   </label>
                   <input
                     type="file"
                     multiple
-                    accept="image/*"
-                    onChange={handleMapPhotoInputChange}
+                    accept="image/*,video/*"
+                    onChange={handleMapMediaInputChange}
                     className="mt-1 block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-500 bg-slate-900 border border-slate-800 rounded-lg"
                   />
-                  {mapPhotoError && <p className="text-[10px] text-amber-400 mt-1">{mapPhotoError}</p>}
-                  {mapExistingPhotos.length > 0 && (
-                    <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                      {mapExistingPhotos.map((photoName, index) => (
-                        <div key={`${photoName}-${index}`} className="relative rounded-lg overflow-hidden border border-slate-800 w-20 h-20 flex-shrink-0">
-                          <img src={resolvePhotoUrl(photoName)} alt={`Foto ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveMapExistingPhoto(photoName)}
-                            className="absolute top-1 right-1 bg-slate-900/80 text-[10px] px-1.5 py-0.5 rounded text-red-300 hover:bg-slate-900"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
+                  {mapIsUploadingMedia && (
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-cyan-300">
+                      <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-cyan-500 transition-all duration-200"
+                          style={{ width: `${mapUploadProgress ?? 0}%` }}
+                        />
+                      </div>
+                      <span>{mapUploadProgress ?? 0}%</span>
                     </div>
                   )}
-                  {mapPhotoFiles.length > 0 && (
-                    <ul className="mt-2 text-[11px] text-slate-300 space-y-1">
-                      {mapPhotoFiles.map((file, index) => (
-                        <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2">
-                          <span className="truncate">{file.name}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveMapNewPhoto(index)}
-                            className="text-red-400 hover:text-red-300 text-[11px]"
-                          >
-                            Hapus
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                  {mapMediaError && <p className="text-[10px] text-amber-400 mt-1">{mapMediaError}</p>}
+                  {(mapExistingMedia.length > 0 || mapMediaFiles.length > 0) && (
+                    <div className="mt-2 space-y-2">
+                      {mapExistingMedia.length > 0 && (
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                          {mapExistingMedia.map((mediaName, index) => (
+                            <div key={`${mediaName}-${index}`} className="relative rounded-lg overflow-hidden border border-slate-800 w-20 h-20 flex-shrink-0 bg-slate-900">
+                              {isVideoFileName(mediaName) ? (
+                                <video
+                                  src={resolveMediaUrl(mediaName)}
+                                  className="w-full h-full object-cover"
+                                  muted
+                                  loop
+                                  playsInline
+                                />
+                              ) : (
+                                <img src={resolveMediaUrl(mediaName)} alt={`Media ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMapExistingMedia(mediaName)}
+                                className="absolute top-1 right-1 bg-slate-900/80 text-[10px] px-1.5 py-0.5 rounded text-red-300 hover:bg-slate-900"
+                              >
+                                ×
+                              </button>
+                              {isVideoFileName(mediaName) && (
+                                <span className="absolute bottom-1 left-1 bg-black/60 text-[9px] px-1 rounded">Video</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {mapMediaFiles.length > 0 && (
+                        <ul className="text-[11px] text-slate-300 space-y-1 bg-slate-900/40 rounded-lg p-2 border border-slate-800">
+                          {mapMediaFiles.map((file, index) => (
+                            <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2">
+                              <span className="truncate">{file.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMapNewMedia(index)}
+                                className="text-red-400 hover:text-red-300 text-[11px]"
+                              >
+                                Hapus
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
               <div className="pt-3 mt-3 border-t border-slate-800">
                 {mapFormError && <p className="text-xs text-red-400 mb-2">{mapFormError}</p>}
-                <button type="submit" disabled={isSubmittingMapForm} className={`w-full py-2 rounded-lg font-semibold text-white flex items-center justify-center gap-2 ${isSubmittingMapForm ? 'bg-slate-700 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500'}`}>
-                  {isSubmittingMapForm ? <Activity size={16} className="animate-spin" /> : <Plus size={16} />}
-                  {isSubmittingMapForm ? 'Menyimpan...' : 'Simpan Titik'}
+                <button
+                  type="submit"
+                  disabled={isSubmittingMapForm || mapIsUploadingMedia}
+                  className={`w-full py-2 rounded-lg font-semibold text-white flex items-center justify-center gap-2 ${(isSubmittingMapForm || mapIsUploadingMedia) ? 'bg-slate-700 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500'}`}
+                >
+                  {(isSubmittingMapForm || mapIsUploadingMedia) ? <Activity size={16} className="animate-spin" /> : <Plus size={16} />}
+                  {(isSubmittingMapForm || mapIsUploadingMedia) ? 'Mengunggah...' : 'Simpan Titik'}
                 </button>
               </div>
             </form>
@@ -2459,8 +2616,10 @@ const App = () => {
   const renderPhotoGalleryModal = () => {
     if (!photoGalleryModal.open) return null;
     const { photos, title, activeIndex } = photoGalleryModal;
-    const activePhotoSrc = photos[activeIndex] ? resolvePhotoUrl(photos[activeIndex]) : null;
     const hasPhotos = Array.isArray(photos) && photos.length > 0;
+    const activeEntry = hasPhotos ? photos[activeIndex] : null;
+    const activeMediaSrc = activeEntry ? resolveMediaUrl(activeEntry) : null;
+    const activeIsVideo = activeEntry ? isVideoFileName(activeEntry) : false;
 
     const handlePrev = () => {
       if (!hasPhotos) return;
@@ -2492,14 +2651,23 @@ const App = () => {
             <X size={20} />
           </button>
           <div className="flex items-center gap-2 text-cyan-300 text-xs font-semibold tracking-[0.3em] uppercase mb-2">
-            <Image size={16} /> Album Foto
+            <Image size={16} /> Album Media
           </div>
           <h3 className="text-lg font-bold text-white mb-4">{title}</h3>
           <div className="relative w-full aspect-video bg-slate-950/50 border border-slate-800 rounded-xl overflow-hidden flex items-center justify-center">
-            {hasPhotos && activePhotoSrc ? (
-              <img src={activePhotoSrc} alt={`${title} foto ${activeIndex + 1}`} className="w-full h-full object-contain" />
+            {hasPhotos && activeMediaSrc ? (
+              activeIsVideo ? (
+                <video
+                  src={activeMediaSrc}
+                  className="w-full h-full object-contain"
+                  controls
+                  playsInline
+                />
+              ) : (
+                <img src={activeMediaSrc} alt={`${title} media ${activeIndex + 1}`} className="w-full h-full object-contain" />
+              )
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-slate-500 text-sm">Tidak ada foto dipilih</div>
+              <div className="w-full h-full flex items-center justify-center text-slate-500 text-sm">Tidak ada media</div>
             )}
             {hasPhotos && photos.length > 1 && (
               <>
@@ -2531,19 +2699,32 @@ const App = () => {
                         index === activeIndex ? 'border-cyan-400 shadow shadow-cyan-500/30' : 'border-slate-800'
                       }`}
                     >
-                      <img
-                        src={resolvePhotoUrl(photoName)}
-                        alt={`${title} foto ${index + 1}`}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
+                      {isVideoFileName(photoName) ? (
+                        <video
+                          src={resolveMediaUrl(photoName)}
+                          className="w-full h-full object-cover"
+                          muted
+                          loop
+                          playsInline
+                        />
+                      ) : (
+                        <img
+                          src={resolveMediaUrl(photoName)}
+                          alt={`${title} media ${index + 1}`}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      )}
                       <div className="absolute inset-0 bg-slate-950/10 hover:bg-slate-950/0 transition-colors" />
+                      {isVideoFileName(photoName) && (
+                        <span className="absolute bottom-1 left-1 bg-black/60 text-[9px] px-1 rounded">Video</span>
+                      )}
                     </button>
                   ))}
                 </div>
                 {photos.length > 4 && (
                   <div className="text-[10px] text-slate-500 mt-1 text-right">
-                    Gunakan scroll untuk melihat semua foto
+                    Gunakan scroll untuk melihat semua media
                   </div>
                 )}
               </div>
@@ -2787,7 +2968,7 @@ const App = () => {
       mapInstanceRef.current.flyTo([result.lat, result.lng], 11, { animate: true, duration: 1.3 });
     }
     setSearchPointer({ lat: result.lat, lng: result.lng });
-    setActiveRegion(null);
+    closeActiveRegionPanel();
     closeSearchModal();
   };
 
@@ -2976,41 +3157,56 @@ const App = () => {
                             </div>
                             <div className="flex flex-col gap-2 md:col-span-2">
                                 <label className="text-[11px] font-semibold text-slate-400 tracking-wide uppercase flex items-center gap-2">
-                                    Foto Dokumentasi
-                                    <span className="text-[10px] text-slate-500">(maks {MAX_PHOTOS_PER_REGION} foto)</span>
+                                    Lampiran Media
+                                    <span className="text-[10px] text-slate-500">(maks {MAX_MEDIA_PER_REGION} file)</span>
                                 </label>
                                 <input
                                     type="file"
                                     multiple
-                                    accept="image/*"
-                                    onChange={handleEditPhotoInputChange}
+                                    accept="image/*,video/*"
+                                    onChange={handleEditMediaInputChange}
                                     className="bg-slate-900 border border-slate-800 rounded p-2 text-white text-sm"
                                 />
-                                <span className="text-[10px] text-slate-500">Gunakan foto kondisi lapangan terkini untuk memperjelas laporan.</span>
+                                {isUploadingEditMedia && (
+                                    <div className="flex items-center gap-2 text-[11px] text-cyan-300">
+                                        <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                            <div className="h-full bg-cyan-500 transition-all duration-200" style={{ width: `${editUploadProgress ?? 0}%` }} />
+                                        </div>
+                                        <span>{editUploadProgress ?? 0}%</span>
+                                    </div>
+                                )}
+                                <span className="text-[10px] text-slate-500">Gunakan foto atau video kondisi lapangan untuk memperjelas laporan.</span>
                                 {editFormData.photos?.length > 0 && (
                                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
                                         {editFormData.photos.map((photoName, index) => (
                                             <div key={`${photoName}-${index}`} className="relative rounded-lg overflow-hidden border border-slate-800 bg-slate-900/60">
-                                                <img src={resolvePhotoUrl(photoName)} alt={`Dokumentasi ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                                                {isVideoFileName(photoName) ? (
+                                                    <video src={resolveMediaUrl(photoName)} className="w-full h-full object-cover" controls={false} muted loop playsInline />
+                                                ) : (
+                                                    <img src={resolveMediaUrl(photoName)} alt={`Dokumentasi ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                                                )}
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleRemoveEditExistingPhoto(photoName)}
+                                                    onClick={() => handleRemoveEditExistingMedia(photoName)}
                                                     className="absolute top-1 right-1 bg-slate-900/80 text-[10px] px-1.5 py-0.5 rounded text-red-300 hover:bg-slate-900"
                                                 >
                                                     Hapus
                                                 </button>
+                                                {isVideoFileName(photoName) && (
+                                                    <span className="absolute bottom-1 left-1 bg-black/60 text-[10px] px-1 rounded">Video</span>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
                                 )}
-                                {editPhotoFiles.length > 0 && (
+                                {editMediaFiles.length > 0 && (
                                     <ul className="mt-2 text-[11px] text-slate-300 space-y-1">
-                                        {editPhotoFiles.map((file, index) => (
+                                        {editMediaFiles.map((file, index) => (
                                             <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 bg-slate-900/50 border border-slate-800 rounded px-2 py-1">
                                                 <span className="truncate">{file.name}</span>
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleRemoveEditNewPhoto(index)}
+                                                    onClick={() => handleRemoveEditNewMedia(index)}
                                                     className="text-red-400 hover:text-red-300 text-[10px]"
                                                 >
                                                     Batalkan
@@ -3033,10 +3229,10 @@ const App = () => {
                             <div className="col-span-1 md:col-span-2">
                                 <button
                                     type="submit"
-                                    disabled={isPersistingRegions}
-                                    className={`w-full p-3 rounded font-bold text-white flex items-center justify-center gap-2 ${isPersistingRegions ? 'bg-cyan-800 cursor-not-allowed opacity-70' : 'bg-cyan-600 hover:bg-cyan-500'}`}
+                                    disabled={isPersistingRegions || isUploadingEditMedia}
+                                    className={`w-full p-3 rounded font-bold text-white flex items-center justify-center gap-2 ${(isPersistingRegions || isUploadingEditMedia) ? 'bg-cyan-800 cursor-not-allowed opacity-70' : 'bg-cyan-600 hover:bg-cyan-500'}`}
                                 >
-                                    {isPersistingRegions ? (
+                                    {(isPersistingRegions || isUploadingEditMedia) ? (
                                         <>
                                             <Activity size={16} className="animate-spin" /> Menyimpan...
                                         </>
