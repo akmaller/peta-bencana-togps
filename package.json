@@ -13,10 +13,13 @@
   },
   "dependencies": {
     "express": "^4.19.2",
+    "heic-convert": "^2.1.0",
     "lucide-react": "^0.263.1",
+    "multer": "^2.0.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "serve": "^14.2.1"
+    "serve": "^14.2.1",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",

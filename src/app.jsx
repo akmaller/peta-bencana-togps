@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { AlertTriangle, Droplets, Flame, Users, Activity, MapPin, Info, Wind, Search, Newspaper, Layers, Lock, LogOut, Save, Trash2, Plus, Edit3, X, Eye, Navigation, GitBranch, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, Droplets, Flame, Users, Activity, MapPin, Info, Wind, Search, Newspaper, Layers, Lock, LogOut, Save, Trash2, Plus, Edit3, X, Eye, Navigation, GitBranch, ChevronDown, ChevronUp, Image } from 'lucide-react';
 import disastersCsv from './data/disasters.csv?raw';
 import routesCsv from './data/routes.csv?raw';
 
@@ -64,6 +64,67 @@ const formatLocationName = (raw = '') => {
 };
 
 const normalizeLocationKey = (name = '') => name.replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
+const MAX_PHOTOS_PER_REGION = 12;
+
+const parsePhotosCell = (raw) => {
+  if (Array.isArray(raw)) {
+    return raw.map((value) => String(value)).filter(Boolean).slice(0, MAX_PHOTOS_PER_REGION);
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((value) => String(value)).filter(Boolean).slice(0, MAX_PHOTOS_PER_REGION);
+      }
+    } catch (error) {
+      // Fallback to delimiter-based parsing
+    }
+    return trimmed
+      .split('|')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .slice(0, MAX_PHOTOS_PER_REGION);
+  }
+  return [];
+};
+
+const normalizePhotos = (raw) => parsePhotosCell(raw);
+
+const resolvePhotoUrl = (fileName = '') => {
+  if (!fileName) return '';
+  if (/^https?:\/\//i.test(fileName)) return fileName;
+  const base = API_BASE_URL || '';
+  const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+  const normalizedFile = fileName.replace(/^\/+/, '');
+  return `${normalizedBase}/uploads/${normalizedFile}`;
+};
+
+const uploadRegionPhotos = async (files = [], locationName = '') => {
+  if (!files?.length) return [];
+  if (typeof fetch === 'undefined') {
+    throw new Error('Lingkungan tidak mendukung upload.');
+  }
+  const uploadEndpoint = API_BASE_URL
+    ? `${API_BASE_URL}/api/photos/upload`
+    : '/api/photos/upload';
+  const formData = new FormData();
+  formData.append('locationName', locationName || 'lokasi');
+  files.forEach((file) => formData.append('photos', file));
+  const response = await fetch(uploadEndpoint, {
+    method: 'POST',
+    body: formData
+  });
+  if (!response.ok) {
+    throw new Error('Gagal mengunggah foto.');
+  }
+  const payload = await response.json();
+  if (!payload?.files || !Array.isArray(payload.files)) {
+    throw new Error('Server tidak mengembalikan daftar foto.');
+  }
+  return payload.files;
+};
 
 const parseCSVRow = (line = '') => {
   const values = [];
@@ -108,7 +169,8 @@ const parseCSV = (csvText = '') => {
       severity: values[7],
       description: values[8]?.replace(/"/g, '').trim(),
       lastUpdate: values[9],
-      source: values[10]
+      source: values[10],
+      photos: parsePhotosCell(values[11])
     };
   });
 };
@@ -246,6 +308,9 @@ const App = () => {
   const [mapFormAuthorized, setMapFormAuthorized] = useState(false);
   const [mapFormError, setMapFormError] = useState(null);
   const [isSubmittingMapForm, setIsSubmittingMapForm] = useState(false);
+  const [mapExistingPhotos, setMapExistingPhotos] = useState([]);
+  const [mapPhotoFiles, setMapPhotoFiles] = useState([]);
+  const [mapPhotoError, setMapPhotoError] = useState(null);
   const [mapEditTarget, setMapEditTarget] = useState(null);
   const [isEditingPosition, setIsEditingPosition] = useState(false);
   const [positionEditCoords, setPositionEditCoords] = useState(null);
@@ -295,6 +360,8 @@ const App = () => {
   const [routeDeletePassword, setRouteDeletePassword] = useState('');
   const [routeDeleteError, setRouteDeleteError] = useState(null);
   const [isDeletingRoute, setIsDeletingRoute] = useState(false);
+  const [editPhotoFiles, setEditPhotoFiles] = useState([]);
+  const [photoGalleryModal, setPhotoGalleryModal] = useState({ open: false, photos: [], title: '', activeIndex: 0 });
 
   // Refs
   const mapContainerRef = useRef(null);
@@ -633,6 +700,16 @@ const App = () => {
     setPositionEditCoords(null);
     resetPositionAuth();
   }, [activeRegion?.id]);
+
+  useEffect(() => {
+    setPhotoGalleryModal((prev) => (prev.open ? { open: false, photos: [], title: '', activeIndex: 0 } : prev));
+  }, [activeRegion?.id]);
+
+  useEffect(() => {
+    if (!editingId) {
+      setEditPhotoFiles([]);
+    }
+  }, [editingId]);
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.permissions?.query) return undefined;
@@ -1280,7 +1357,8 @@ const App = () => {
 
   const handleEditClick = (region) => {
     setEditingId(region.id);
-    setEditFormData({ ...region, locationPreset: getPresetForRegion(region) });
+    setEditFormData({ ...region, photos: normalizePhotos(region?.photos), locationPreset: getPresetForRegion(region) });
+    setEditPhotoFiles([]);
   };
 
   const handleAddNew = () => {
@@ -1297,8 +1375,39 @@ const App = () => {
         description: '',
         lastUpdate: new Date().toLocaleDateString('id-ID'),
         source: '-',
+        photos: [],
         locationPreset: 'custom'
     });
+    setEditPhotoFiles([]);
+  };
+
+  const handleEditPhotoInputChange = (event) => {
+    const files = Array.from(event.target?.files || []);
+    if (!files.length) return;
+    const currentExisting = Array.isArray(editFormData.photos) ? editFormData.photos.length : 0;
+    const remainingSlots = MAX_PHOTOS_PER_REGION - (currentExisting + editPhotoFiles.length);
+    if (remainingSlots <= 0) {
+      showFeedback(`Maksimal ${MAX_PHOTOS_PER_REGION} foto per titik.`);
+      event.target.value = '';
+      return;
+    }
+    const acceptedFiles = files.slice(0, remainingSlots);
+    setEditPhotoFiles((prev) => [...prev, ...acceptedFiles]);
+    if (acceptedFiles.length < files.length) {
+      showFeedback(`Hanya ${MAX_PHOTOS_PER_REGION} foto yang dapat disimpan per titik.`);
+    }
+    event.target.value = '';
+  };
+
+  const handleRemoveEditExistingPhoto = (fileName) => {
+    setEditFormData((prev) => ({
+      ...prev,
+      photos: (prev.photos || []).filter((photo) => photo !== fileName)
+    }));
+  };
+
+  const handleRemoveEditNewPhoto = (index) => {
+    setEditPhotoFiles((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleSyncFromAPI = async () => {
@@ -1323,7 +1432,8 @@ const App = () => {
           severity: 'medium',
           description: `Data wilayah ${loc.name} (${loc.provinceName}) hasil sinkronisasi otomatis.`,
           lastUpdate: timestamp,
-          source: 'API Ibnux (auto-sync)'
+          source: 'API Ibnux (auto-sync)',
+          photos: []
         }))
         .filter((entry) => Number.isFinite(entry.lat) && Number.isFinite(entry.lng) && !existingIds.has(entry.id));
       if (newEntries.length > 0) {
@@ -1353,8 +1463,19 @@ const App = () => {
     const formData = {
         ...dataWithoutPreset,
         lat: parseFloat(dataWithoutPreset.lat),
-        lng: parseFloat(dataWithoutPreset.lng)
+        lng: parseFloat(dataWithoutPreset.lng),
+        photos: Array.isArray(dataWithoutPreset.photos) ? dataWithoutPreset.photos : []
     };
+    try {
+      const uploaded = await uploadRegionPhotos(editPhotoFiles, formData.name);
+      formData.photos = normalizePhotos([...(formData.photos || []), ...uploaded]);
+      setEditFormData((prev) => ({ ...prev, photos: formData.photos }));
+      setEditPhotoFiles([]);
+    } catch (error) {
+      console.error('Edit form photo upload failed:', error);
+      showFeedback(error?.message || 'Gagal mengunggah foto.');
+      return;
+    }
     const currentRegions = regionsRef.current;
     const nextRegions = editingId === 'NEW'
       ? [...currentRegions, formData]
@@ -1537,6 +1658,9 @@ const App = () => {
     setMapFormAuthorized(false);
     setMapFormError(null);
     setIsSubmittingMapForm(false);
+    setMapExistingPhotos([]);
+    setMapPhotoFiles([]);
+    setMapPhotoError(null);
   };
 
   const openMapFormAt = (lat, lng, editingRegion = null) => {
@@ -1549,6 +1673,9 @@ const App = () => {
         status: editingRegion.status || '',
         severity: editingRegion.severity || 'medium'
       });
+      setMapExistingPhotos(normalizePhotos(editingRegion.photos));
+      setMapPhotoFiles([]);
+      setMapPhotoError(null);
       setMapEditTarget(editingRegion);
       setMapAddForm({ open: true, lat: editingRegion.lat, lng: editingRegion.lng });
     } else {
@@ -1562,6 +1689,46 @@ const App = () => {
     resetMapFormState();
     setMapEditTarget(null);
   };
+
+  const handleMapPhotoInputChange = (event) => {
+    const files = Array.from(event.target?.files || []);
+    if (!files.length) return;
+    const totalSelected = mapExistingPhotos.length + mapPhotoFiles.length;
+    const remainingSlots = MAX_PHOTOS_PER_REGION - totalSelected;
+    if (remainingSlots <= 0) {
+      setMapPhotoError(`Maksimal ${MAX_PHOTOS_PER_REGION} foto per titik.`);
+      event.target.value = '';
+      return;
+    }
+    const acceptedFiles = files.slice(0, remainingSlots);
+    setMapPhotoFiles((prev) => [...prev, ...acceptedFiles]);
+    setMapPhotoError(acceptedFiles.length < files.length
+      ? `Maksimal ${MAX_PHOTOS_PER_REGION} foto per titik. Beberapa file tidak dimasukkan.`
+      : null);
+    event.target.value = '';
+  };
+
+  const handleRemoveMapExistingPhoto = (fileName) => {
+    setMapExistingPhotos((prev) => prev.filter((photo) => photo !== fileName));
+  };
+
+  const handleRemoveMapNewPhoto = (index) => {
+    setMapPhotoFiles((prev) => prev.filter((_, idx) => idx !== index));
+  };
+  const openPhotoGallery = useCallback((region, startIndex = 0) => {
+    if (!region?.photos || !region.photos.length) return;
+    const boundedIndex = Math.min(Math.max(startIndex, 0), region.photos.length - 1);
+    setPhotoGalleryModal({
+      open: true,
+      photos: region.photos,
+      title: region.name || 'Album Foto',
+      activeIndex: boundedIndex
+    });
+  }, []);
+
+  const closePhotoGallery = useCallback(() => {
+    setPhotoGalleryModal({ open: false, photos: [], title: '', activeIndex: 0 });
+  }, []);
 
   const openSearchModal = () => {
     setIsSearchModalOpen(true);
@@ -1796,7 +1963,11 @@ const App = () => {
   }, [cancelRouteHoldTimer]);
 
   const persistRegions = async (nextRegions, { successMessage } = {}) => {
-    setRegions(nextRegions);
+    const normalizedRegions = (nextRegions || []).map((region) => ({
+      ...region,
+      photos: normalizePhotos(region?.photos)
+    }));
+    setRegions(normalizedRegions);
     if (typeof fetch === 'undefined') {
       showFeedback('API server tidak tersedia di lingkungan ini.');
       return false;
@@ -1810,7 +1981,7 @@ const App = () => {
       const response = await fetch(DISASTERS_API_URL, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ records: nextRegions }),
+        body: JSON.stringify({ records: normalizedRegions }),
       });
       if (!response.ok) {
         throw new Error('Failed to save server data');
@@ -1887,6 +2058,19 @@ const App = () => {
     const timestamp = new Date().toLocaleDateString('id-ID');
     const isEditing = Boolean(mapEditTarget);
     const entryId = isEditing ? mapEditTarget.id : `map-${Date.now()}`;
+    let uploadedPhotos = [];
+    try {
+      uploadedPhotos = await uploadRegionPhotos(mapPhotoFiles, mapFormData.name || `Titik ${timestamp}`);
+    } catch (error) {
+      console.error('Map form photo upload failed:', error);
+      setMapFormError(error?.message || 'Gagal mengunggah foto.');
+      setIsSubmittingMapForm(false);
+      return;
+    }
+    const combinedPhotos = normalizePhotos([
+      ...mapExistingPhotos,
+      ...uploadedPhotos
+    ]);
     const newEntry = {
       id: entryId,
       name: mapFormData.name || `Titik ${timestamp}`,
@@ -1898,22 +2082,29 @@ const App = () => {
       severity: mapFormData.severity || 'medium',
       description: mapFormData.description || '-',
       lastUpdate: timestamp,
-      source: 'Map Context Form'
+      source: 'Map Context Form',
+      photos: combinedPhotos
     };
     const nextRegions = isEditing
       ? regionsRef.current.map(region => region.id === entryId ? newEntry : region)
       : [...regionsRef.current, newEntry];
     const success = await persistRegions(nextRegions, { successMessage: isEditing ? 'Titik berhasil diperbarui.' : 'Titik baru berhasil ditambahkan.' });
     setIsSubmittingMapForm(false);
-  if (success) {
-    if (isEditingPosition) {
-      setIsEditingPosition(false);
-      setPositionEditCoords(null);
-      resetPositionAuth();
+    if (success) {
+      if (isEditing && activeRegion?.id === entryId) {
+        setActiveRegion(newEntry);
+      }
+      setMapExistingPhotos([]);
+      setMapPhotoFiles([]);
+      setMapPhotoError(null);
+      if (isEditingPosition) {
+        setIsEditingPosition(false);
+        setPositionEditCoords(null);
+        resetPositionAuth();
+      }
+      closeMapForm();
     }
-    closeMapForm();
-  }
-};
+  };
 
   const startSidebarDrag = (event) => {
     if (!sidebarPosition) return;
@@ -2083,6 +2274,39 @@ const App = () => {
                 </button>
               )}
             </div>
+            {Array.isArray(activeRegion.photos) && activeRegion.photos.length > 0 && (
+              <div className="pt-2 border-t border-slate-800/50">
+                <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">
+                  <span>Dokumentasi</span>
+                  <span>{activeRegion.photos.length} Foto</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {activeRegion.photos.slice(0, 4).map((photoName, index) => (
+                    <button
+                      key={`${photoName}-${index}`}
+                      onClick={() => openPhotoGallery(activeRegion, index)}
+                      className="relative w-full pt-[56%] bg-slate-900/60 rounded-lg overflow-hidden border border-slate-800 group"
+                    >
+                      <img
+                        src={resolvePhotoUrl(photoName)}
+                        alt={`${activeRegion.name} dokumentasi ${index + 1}`}
+                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-150"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-slate-950/20 group-hover:bg-slate-950/5 transition-colors" />
+                    </button>
+                  ))}
+                </div>
+                {activeRegion.photos.length > 4 && (
+                  <button
+                    onClick={() => openPhotoGallery(activeRegion, 0)}
+                    className="mt-3 w-full text-xs font-semibold text-cyan-300 hover:text-white py-1.5 border border-slate-800 rounded-lg flex items-center justify-center gap-2"
+                  >
+                    <Image size={14} /> Lihat semua
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2167,6 +2391,52 @@ const App = () => {
                 <label className="text-[11px] font-semibold text-slate-400 uppercase">Label Status</label>
                 <input value={mapFormData.status} onChange={(e) => setMapFormData({ ...mapFormData, status: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Contoh: Darurat (opsional)" />
               </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase flex items-center gap-2">
+                  Foto Dokumentasi
+                  <span className="text-[10px] text-slate-500">(maks {MAX_PHOTOS_PER_REGION} foto)</span>
+                </label>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={handleMapPhotoInputChange}
+                  className="mt-1 block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-500 bg-slate-900 border border-slate-800 rounded-lg"
+                />
+                {mapPhotoError && <p className="text-[10px] text-amber-400 mt-1">{mapPhotoError}</p>}
+                {mapExistingPhotos.length > 0 && (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {mapExistingPhotos.map((photoName, index) => (
+                      <div key={`${photoName}-${index}`} className="relative rounded-lg overflow-hidden border border-slate-800">
+                        <img src={resolvePhotoUrl(photoName)} alt={`Foto ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMapExistingPhoto(photoName)}
+                          className="absolute top-1 right-1 bg-slate-900/80 text-[10px] px-1.5 py-0.5 rounded text-red-300 hover:bg-slate-900"
+                        >
+                          Hapus
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {mapPhotoFiles.length > 0 && (
+                  <ul className="mt-2 text-[11px] text-slate-300 space-y-1">
+                    {mapPhotoFiles.map((file, index) => (
+                      <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2">
+                        <span className="truncate">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMapNewPhoto(index)}
+                          className="text-red-400 hover:text-red-300 text-[10px]"
+                        >
+                          Hapus
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               {mapFormError && <p className="text-xs text-red-400">{mapFormError}</p>}
               <button type="submit" disabled={isSubmittingMapForm} className={`w-full py-2 rounded-lg font-semibold text-white flex items-center justify-center gap-2 ${isSubmittingMapForm ? 'bg-slate-700 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500'}`}>
                 {isSubmittingMapForm ? <Activity size={16} className="animate-spin" /> : <Plus size={16} />}
@@ -2174,6 +2444,52 @@ const App = () => {
               </button>
             </form>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderPhotoGalleryModal = () => {
+    if (!photoGalleryModal.open) return null;
+    const { photos, title, activeIndex } = photoGalleryModal;
+    const activePhotoSrc = photos[activeIndex] ? resolvePhotoUrl(photos[activeIndex]) : null;
+    return (
+      <div className="fixed inset-0 z-[675] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm px-4 py-6">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl p-6 relative shadow-2xl">
+          <button onClick={closePhotoGallery} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+            <X size={20} />
+          </button>
+          <div className="flex items-center gap-2 text-cyan-300 text-xs font-semibold tracking-[0.3em] uppercase mb-2">
+            <Image size={16} /> Album Foto
+          </div>
+          <h3 className="text-lg font-bold text-white mb-4">{title}</h3>
+          {activePhotoSrc ? (
+            <div className="w-full aspect-video bg-slate-950/50 border border-slate-800 rounded-xl overflow-hidden flex items-center justify-center">
+              <img src={activePhotoSrc} alt={`${title} foto ${activeIndex + 1}`} className="w-full h-full object-contain" />
+            </div>
+          ) : (
+            <div className="w-full aspect-video bg-slate-950/50 border border-dashed border-slate-700 rounded-xl flex items-center justify-center text-slate-500">
+              Tidak ada foto dipilih
+            </div>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-4 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+            {photos.map((photoName, index) => (
+              <button
+                key={`${photoName}-${index}`}
+                onClick={() => setPhotoGalleryModal((prev) => ({ ...prev, activeIndex: index }))}
+                className={`relative w-full pt-[70%] rounded-lg overflow-hidden border ${index === activeIndex ? 'border-cyan-400 shadow shadow-cyan-500/30' : 'border-slate-800'}`}
+              >
+                <img
+                  src={resolvePhotoUrl(photoName)}
+                  alt={`${title} foto ${index + 1}`}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-slate-950/20 hover:bg-slate-950/5 transition-colors" />
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-3">Klik thumbnail untuk memperbesar tampilan foto di atas.</p>
         </div>
       </div>
     );
@@ -2599,6 +2915,52 @@ const App = () => {
                                 <textarea placeholder="Ringkasan situasi terbaru..." rows="3" value={editFormData.description} onChange={e => setEditFormData({...editFormData, description: e.target.value})} className="bg-slate-800 border-slate-700 rounded p-2 text-white"></textarea>
                                 <span className="text-[10px] text-slate-500">Tambahkan informasi lapangan yang relevan (maks. 2-3 kalimat).</span>
                             </div>
+                            <div className="flex flex-col gap-2 md:col-span-2">
+                                <label className="text-[11px] font-semibold text-slate-400 tracking-wide uppercase flex items-center gap-2">
+                                    Foto Dokumentasi
+                                    <span className="text-[10px] text-slate-500">(maks {MAX_PHOTOS_PER_REGION} foto)</span>
+                                </label>
+                                <input
+                                    type="file"
+                                    multiple
+                                    accept="image/*"
+                                    onChange={handleEditPhotoInputChange}
+                                    className="bg-slate-900 border border-slate-800 rounded p-2 text-white text-sm"
+                                />
+                                <span className="text-[10px] text-slate-500">Gunakan foto kondisi lapangan terkini untuk memperjelas laporan.</span>
+                                {editFormData.photos?.length > 0 && (
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                                        {editFormData.photos.map((photoName, index) => (
+                                            <div key={`${photoName}-${index}`} className="relative rounded-lg overflow-hidden border border-slate-800 bg-slate-900/60">
+                                                <img src={resolvePhotoUrl(photoName)} alt={`Dokumentasi ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveEditExistingPhoto(photoName)}
+                                                    className="absolute top-1 right-1 bg-slate-900/80 text-[10px] px-1.5 py-0.5 rounded text-red-300 hover:bg-slate-900"
+                                                >
+                                                    Hapus
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {editPhotoFiles.length > 0 && (
+                                    <ul className="mt-2 text-[11px] text-slate-300 space-y-1">
+                                        {editPhotoFiles.map((file, index) => (
+                                            <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 bg-slate-900/50 border border-slate-800 rounded px-2 py-1">
+                                                <span className="truncate">{file.name}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveEditNewPhoto(index)}
+                                                    className="text-red-400 hover:text-red-300 text-[10px]"
+                                                >
+                                                    Batalkan
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
                             <div className="flex flex-col gap-2">
                                 <label className="text-[11px] font-semibold text-slate-400 tracking-wide uppercase">Tanggal Update</label>
                                 <input placeholder="Contoh: 28-Nov-2025" value={editFormData.lastUpdate || ''} onChange={e => setEditFormData({...editFormData, lastUpdate: e.target.value})} className="bg-slate-800 border-slate-700 rounded p-2 text-white" />
@@ -2696,6 +3058,7 @@ const App = () => {
       {renderRouteBuilderPanel()}
       {renderRouteDeleteModal()}
       {renderMapAddOverlay()}
+      {renderPhotoGalleryModal()}
       {renderLocationPermissionModal()}
       {renderSearchModal()}
       {renderPasswordModal()}

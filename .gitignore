@@ -17,4 +17,7 @@ pnpm-debug.log*
 .DS_Store
 
 # Database
-src/data/*
+src/data/disasters.csv
+
+# Foto
+/uploads/photos/*
