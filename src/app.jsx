@@ -64,6 +64,86 @@ const formatLocationName = (raw = '') => {
 };
 
 const normalizeLocationKey = (name = '') => name.replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
+const REGION_SEARCH_RESULT_LIMIT = 8;
+
+const normalizeSearchText = (value = '') => {
+  if (!value && value !== 0) return '';
+  return value
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/gi, ' ')
+    .trim()
+    .toLowerCase();
+};
+
+const buildRegionSearchCorpus = (region = {}) => normalizeSearchText([
+  region.name,
+  region.description,
+  region.disasterType,
+  region.victimsText,
+  region.status,
+  region.source
+].filter(Boolean).join(' '));
+
+const truncateText = (text = '', maxLength = 120) => {
+  if (!text) return '';
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength).trim()}…`;
+};
+
+const buildRegionSearchResults = (regions = [], query = '', limit = REGION_SEARCH_RESULT_LIMIT) => {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return [];
+  const tokens = normalizedQuery.split(' ').filter(Boolean);
+  if (!tokens.length) return [];
+  const matches = [];
+  regions.forEach((region) => {
+    if (!region) return;
+    const lat = Number(region.lat);
+    const lng = Number(region.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const corpus = buildRegionSearchCorpus(region);
+    if (!corpus) return;
+    const hasPhraseMatch = corpus.includes(normalizedQuery);
+    const hasTokenMatch = tokens.every((token) => corpus.includes(token));
+    if (!hasPhraseMatch && !hasTokenMatch) return;
+    const subtitleParts = [
+      region.disasterType,
+      region.status,
+      region.victimsText
+    ].filter(Boolean);
+    const subtitleText = subtitleParts.length
+      ? subtitleParts.join(' · ')
+      : region.description;
+    matches.push({
+      id: `region-${region.id}`,
+      regionId: region.id,
+      title: region.name || 'Lokasi Tanpa Nama',
+      subtitle: truncateText(subtitleText, 140),
+      lat,
+      lng,
+      source: 'region'
+    });
+  });
+  return matches
+    .sort((a, b) => a.title.localeCompare(b.title, 'id-ID'))
+    .slice(0, limit);
+};
+
+const mergeSearchResults = (localResults = [], remoteResults = []) => {
+  const seen = new Set();
+  const combined = [];
+  [...localResults, ...remoteResults].forEach((item) => {
+    if (!item || !item.id) return;
+    const key = `${item.source || 'unknown'}-${item.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    combined.push(item);
+  });
+  return combined;
+};
 const MAX_MEDIA_PER_REGION = 12;
 const VIDEO_FILE_REGEX = /\.(mp4|mov|m4v|avi|mkv|webm)$/i;
 
@@ -343,6 +423,10 @@ const App = () => {
   const [isSearchingLocations, setIsSearchingLocations] = useState(false);
   const [searchError, setSearchError] = useState(null);
   const [searchPointer, setSearchPointer] = useState(null);
+  const localRegionSearchResults = useMemo(
+    () => buildRegionSearchResults(regions, searchQuery),
+    [regions, searchQuery]
+  );
   const [sidebarPosition, setSidebarPosition] = useState(null);
   const [sidebarLocked, setSidebarLocked] = useState(false);
   const [passwordModal, setPasswordModal] = useState({ open: false, context: null, payload: null });
@@ -877,6 +961,9 @@ const App = () => {
       setIsSearchingLocations(false);
       return;
     }
+
+    setSearchResults(localRegionSearchResults);
+
     searchDebounceRef.current = setTimeout(async () => {
       setIsSearchingLocations(true);
       setSearchError(null);
@@ -901,7 +988,7 @@ const App = () => {
         if (!response.ok) throw new Error('Pencarian gagal');
         const data = await response.json();
         const filtered = Array.isArray(data) ? data.filter(item => item?.lat && item?.lon && item?.address?.state) : [];
-        setSearchResults(filtered.map(item => ({
+        const remoteResults = filtered.map(item => ({
           id: item.place_id,
           title: item.display_name?.split(',')[0] || item.display_name,
           subtitle: [
@@ -910,8 +997,14 @@ const App = () => {
             item.address?.state || ''
           ].filter(Boolean).join(' · '),
           lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon)
-        })));
+          lng: parseFloat(item.lon),
+          source: 'osm'
+        }));
+        const mergedResults = mergeSearchResults(
+          buildRegionSearchResults(regionsRef.current, searchQuery),
+          remoteResults
+        );
+        setSearchResults(mergedResults);
       } catch (error) {
         if (error.name !== 'AbortError') {
           console.error('Search error:', error);
@@ -925,7 +1018,7 @@ const App = () => {
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-  }, [searchQuery, isSearchModalOpen]);
+  }, [searchQuery, isSearchModalOpen, localRegionSearchResults]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2967,8 +3060,17 @@ const App = () => {
     if (mapInstanceRef.current) {
       mapInstanceRef.current.flyTo([result.lat, result.lng], 11, { animate: true, duration: 1.3 });
     }
-    setSearchPointer({ lat: result.lat, lng: result.lng });
-    closeActiveRegionPanel();
+    if (result.source === 'region' && result.regionId) {
+      const targetRegion = regions.find((item) => item.id === result.regionId);
+      if (targetRegion) {
+        setActiveRegion(targetRegion);
+        setSidebarLocked(false);
+      }
+      setSearchPointer(null);
+    } else {
+      setSearchPointer({ lat: result.lat, lng: result.lng });
+      closeActiveRegionPanel();
+    }
     closeSearchModal();
   };
 
@@ -3003,11 +3105,24 @@ const App = () => {
                 <button
                   key={result.id}
                   onClick={() => handleSearchResultSelect(result)}
-                  className="w-full text-left bg-slate-800/60 hover:bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 transition flex flex-col"
+                  className={`w-full text-left bg-slate-800/60 hover:bg-slate-800 border rounded-xl px-4 py-3 transition flex flex-col gap-1.5 ${
+                    result.source === 'region' ? 'border-emerald-500/40' : 'border-slate-700'
+                  }`}
                 >
-                  <span className="text-sm font-semibold text-white">{result.title}</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-semibold text-white">{result.title}</span>
+                    <span
+                      className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border ${
+                        result.source === 'region'
+                          ? 'border-emerald-400 text-emerald-300 bg-emerald-500/10'
+                          : 'border-slate-600 text-slate-400 bg-slate-700/40'
+                      }`}
+                    >
+                      {result.source === 'region' ? 'Database' : 'OpenStreetMap'}
+                    </span>
+                  </div>
                   {result.subtitle && <span className="text-xs text-slate-400">{result.subtitle}</span>}
-                  <span className="text-[10px] text-slate-500 font-mono mt-1">Lat {result.lat.toFixed(4)} · Lng {result.lng.toFixed(4)}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">Lat {result.lat.toFixed(4)} · Lng {result.lng.toFixed(4)}</span>
                 </button>
               ))
             )}
