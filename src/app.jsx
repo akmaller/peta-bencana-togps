@@ -64,6 +64,48 @@ const formatLocationName = (raw = '') => {
 };
 
 const normalizeLocationKey = (name = '') => name.replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
+const clampValue = (value, min, max) => Math.min(max, Math.max(min, value));
+const clampZoomWithinMap = (mapInstance, zoomValue) => {
+  if (!mapInstance) return zoomValue;
+  const minZoom = typeof mapInstance.getMinZoom === 'function'
+    ? mapInstance.getMinZoom()
+    : Number.isFinite(mapInstance.options?.minZoom) ? mapInstance.options.minZoom : 0;
+  const maxZoom = typeof mapInstance.getMaxZoom === 'function'
+    ? mapInstance.getMaxZoom()
+    : Number.isFinite(mapInstance.options?.maxZoom) ? mapInstance.options.maxZoom : 19;
+  return clampValue(zoomValue, minZoom, maxZoom);
+};
+const computeBaseZoomStep = (zoom = 0) => {
+  if (zoom <= 8) return 3.2;
+  if (zoom <= 10) return 2.45;
+  if (zoom <= 12) return 1.75;
+  if (zoom <= 14) return 1.25;
+  if (zoom <= 16) return 0.85;
+  return 0.65;
+};
+const computeScrollIntensity = (deltaY = 0, isGesture = false) => {
+  const divisor = isGesture ? 35 : 95;
+  const normalized = Math.abs(deltaY) / (divisor || 1);
+  return clampValue(normalized, 0.35, 5.8);
+};
+const computeFocusAwareCenter = (mapInstance, targetZoom, focusPoint) => {
+  if (!mapInstance || !mapInstance.getCenter) return null;
+  const currentZoom = mapInstance.getZoom();
+  if (!Number.isFinite(targetZoom) || !Number.isFinite(currentZoom)) return mapInstance.getCenter();
+  if (Math.abs(targetZoom - currentZoom) < 0.0001) return mapInstance.getCenter();
+  const size = typeof mapInstance.getSize === 'function' ? mapInstance.getSize() : null;
+  if (!size) return mapInstance.getCenter();
+  const viewHalf = size.divideBy ? size.divideBy(2) : size.multiplyBy(0.5);
+  const anchorPoint = focusPoint || viewHalf;
+  const scale = typeof mapInstance.getZoomScale === 'function'
+    ? mapInstance.getZoomScale(targetZoom, currentZoom)
+    : Math.pow(2, targetZoom - currentZoom);
+  if (!Number.isFinite(scale) || scale <= 0) return mapInstance.getCenter();
+  const offset = anchorPoint.subtract(viewHalf);
+  const targetOffset = offset.multiplyBy(1 - 1 / scale);
+  const centerPoint = mapInstance.project(mapInstance.getCenter(), targetZoom).add(targetOffset);
+  return mapInstance.unproject(centerPoint, targetZoom);
+};
 const REGION_SEARCH_RESULT_LIMIT = 8;
 
 const normalizeSearchText = (value = '') => {
@@ -383,7 +425,7 @@ const fetchSumatraLocationOptions = async () => {
     .sort((a, b) => a.name.localeCompare(b.name, 'id-ID'));
 };
 
-// SHA-256 Hash untuk "08080808"
+// SHA-256 Hash untuk password
 const TARGET_HASH = "9651674db05263e2f6176a7f4302a6317e5549694d55c69cdc7a6c608baf91df";
 
 const App = () => {
@@ -497,6 +539,57 @@ const App = () => {
     if (routeHoldTimerRef.current) {
       clearTimeout(routeHoldTimerRef.current);
       routeHoldTimerRef.current = null;
+    }
+  }, []);
+  const applyWheelZoom = useCallback((event) => {
+    const mapRef = mapInstanceRef.current;
+    if (!mapRef || !event) return;
+    const deltaY = Number(event.deltaY);
+    if (!Number.isFinite(deltaY) || deltaY === 0) return;
+    const isGesture = Boolean(event.ctrlKey || event.metaKey);
+    const currentZoom = typeof mapRef.getZoom === 'function' ? mapRef.getZoom() : null;
+    if (!Number.isFinite(currentZoom)) return;
+    const direction = deltaY > 0 ? -1 : 1;
+    const baseStep = computeBaseZoomStep(currentZoom);
+    const intensity = computeScrollIntensity(deltaY, isGesture);
+    const targetZoom = clampZoomWithinMap(mapRef, currentZoom + direction * baseStep * intensity);
+    if (!Number.isFinite(targetZoom) || targetZoom === currentZoom) return;
+    const focusPoint = (() => {
+      if (typeof mapRef.mouseEventToContainerPoint === 'function') {
+        try {
+          return mapRef.mouseEventToContainerPoint(event);
+        } catch (err) {
+          return null;
+        }
+      }
+      if (typeof mapRef.getSize === 'function') {
+        try {
+          return mapRef.getSize().divideBy(2);
+        } catch (err) {
+          return null;
+        }
+      }
+      return null;
+    })();
+    const targetCenter = computeFocusAwareCenter(mapRef, targetZoom, focusPoint);
+    const zoomDelta = Math.abs(targetZoom - currentZoom);
+    const duration = clampValue(
+      (isGesture ? 0.16 : 0.12) - Math.min(intensity, 4.5) * 0.02 + zoomDelta * 0.015,
+      0.06,
+      0.28
+    );
+    if (typeof mapRef.stop === 'function') {
+      mapRef.stop();
+    }
+    if (targetCenter) {
+      mapRef.flyTo(targetCenter, targetZoom, {
+        animate: true,
+        duration,
+        easeLinearity: isGesture ? 0.35 : 0.25,
+        noMoveStart: true
+      });
+    } else {
+      mapRef.setZoom(targetZoom, { animate: true });
     }
   }, []);
   const editTypeSelectValue = useMemo(() => {
@@ -1100,21 +1193,8 @@ const App = () => {
         }
         const wheelContainer = map.getContainer();
         const handleWheelSmooth = (event) => {
-          event.preventDefault();
-          const mapRef = mapInstanceRef.current;
-          if (!mapRef) return;
-          const delta = event.deltaY;
-          const direction = delta > 0 ? 1 : -1;
-          const modifier = event.ctrlKey || event.metaKey ? 0.5 : 1;
-          const magnitude = Math.min(Math.abs(delta) / 180, 3) * modifier;
-          const currentZoom = mapRef.getZoom();
-          let baseStep;
-          if (currentZoom >= 15) baseStep = 0.2;
-          else if (currentZoom >= 13) baseStep = 0.32;
-          else if (currentZoom >= 10) baseStep = 0.55;
-          else baseStep = 0.85;
-          const targetZoom = currentZoom - direction * baseStep * (0.6 + magnitude);
-          mapRef.setZoom(targetZoom, { animate: true });
+          if (event?.preventDefault) event.preventDefault();
+          applyWheelZoom(event);
         };
         wheelContainer.addEventListener('wheel', handleWheelSmooth, { passive: false });
         customWheelHandlerRef.current = { handler: handleWheelSmooth, container: wheelContainer };
@@ -1141,7 +1221,7 @@ const App = () => {
         console.error("Map Init Error:", err);
     }
 
-  }, [isLeafletReady, viewMode, configureMapZoomDynamics]);
+  }, [isLeafletReady, viewMode, configureMapZoomDynamics, applyWheelZoom]);
 
   const handleRouteLongPress = useCallback((route) => {
     if (!route) return;
